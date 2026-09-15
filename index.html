@@ -3,15 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- 防範搜尋引擎索引，避免被隨機搜尋到 -->
   <meta name="robots" content="noindex, nofollow">
-  <title>1小時加密貨幣漲幅榜</title>
+  <title>幣安 1小時動態榜</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
     .container { max-width: 600px; margin: 0 auto; }
-    h1 { text-align: center; color: #38bdf8; font-size: 20px; margin-bottom: 5px; }
-    .update-time { text-align: center; color: #94a3b8; font-size: 12px; margin-bottom: 20px; }
-    .card { background: #1e293b; border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    h1 { text-align: center; color: #f0b90b; font-size: 20px; margin-bottom: 5px; }
+    .update-time { text-align: center; color: #94a3b8; font-size: 12px; margin-bottom: 15px; }
+    
+    .tabs { display: flex; gap: 10px; margin-bottom: 15px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; background: #334155; color: #94a3b8; transition: 0.2s; }
+    .tab-btn.active-up { background: #22c55e; color: #fff; }
+    .tab-btn.active-down { background: #ef4444; color: #fff; }
+
+    .card { background: #1e293b; border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; cursor: pointer; transition: background 0.2s; }
+    .card:hover { background: #334155; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; }
     .rank { font-weight: bold; width: 30px; color: #64748b; }
     .coin-info { flex: 1; display: flex; align-items: center; gap: 10px; }
     .symbol { font-weight: bold; text-transform: uppercase; }
@@ -19,61 +27,195 @@
     .change { font-weight: bold; padding: 6px 10px; border-radius: 6px; }
     .up { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
     .down { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+
+    .chart-box { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #334155; }
+    .timeframe-btns { display: flex; gap: 6px; margin-bottom: 8px; }
+    .tf-btn { padding: 4px 8px; border: 1px solid #475569; background: transparent; color: #94a3b8; border-radius: 4px; font-size: 12px; cursor: pointer; }
+    .tf-btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; font-weight: bold; }
+    .chart-container { height: 120px; position: relative; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🔥 1小時加密貨幣漲幅榜 (Top 20)</h1>
-    <div class="update-time" id="time">載入資料中...</div>
-    <div id="crypto-list">正在向 API 獲取最新行情...</div>
+    <h1>💛 幣安 1小時動態榜</h1>
+    <div class="update-time" id="time">載入幣安數據中...</div>
+    
+    <div class="tabs">
+      <button class="tab-btn active-up" id="btn-up" onclick="switchMode('up')">🚀 1h 漲幅榜</button>
+      <button class="tab-btn" id="btn-down" onclick="switchMode('down')">📉 1h 跌幅榜</button>
+    </div>
+
+    <div id="crypto-list">正在向幣安 API 獲取行情...</div>
   </div>
 
   <script>
-    async function fetchTopGainers() {
+    let rawList = [];
+    let currentMode = 'up';
+    let activeChart = { symbol: null, instance: null, interval: '15m' };
+
+    async function fetchBinanceData() {
       try {
-        // 呼叫 CoinGecko 免費 API 抓取市值前 100 幣種
-        const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=1h');
+        // 抓取幣安 24h ticker 數據
+        const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
         const data = await res.json();
         
-        // 依照 1小時漲幅排序 (降序)
-        data.sort((a, b) => (b.price_change_percentage_1h_in_currency || -999) - (a.price_change_percentage_1h_in_currency || -999));
-        
-        // 取前 20 名
-        const top20 = data.slice(0, 20);
-        
-        const listEl = document.getElementById('crypto-list');
-        listEl.innerHTML = '';
-        
-        top20.forEach((coin, index) => {
-          const change = coin.price_change_percentage_1h_in_currency ? coin.price_change_percentage_1h_in_currency.toFixed(2) : 0;
-          const isUp = change >= 0;
-          
-          listEl.innerHTML += `
-            <div class="card">
+        // 過濾出熱門的 USDT 交易對 (排除槓桿代幣如 UP/DOWN)
+        const usdtPairs = data.filter(d => 
+          d.symbol.endsWith('USDT') && 
+          !d.symbol.includes('UPUSDT') && 
+          !d.symbol.includes('DOWNUSDT') &&
+          parseFloat(d.quoteVolume) > 1000000 // 篩選 24h 成交量 > 100萬 USDT
+        );
+
+        // 為了取得精準 1h 漲跌幅，非同步抓取 K 線（前 20 大熱門幣種）
+        // 這裡先以 24h 漲幅前 40 名估算 1h 榜單範圍以提升效能
+        const candidate = usdtPairs.sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 50);
+
+        const calculated = await Promise.all(candidate.map(async (coin) => {
+          try {
+            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=2`);
+            const kData = await kRes.json();
+            if (kData.length >= 2) {
+              const open1h = parseFloat(kData[0][1]); // 1小時前開盤價
+              const currentPrice = parseFloat(coin.lastPrice);
+              const change1h = ((currentPrice - open1h) / open1h) * 100;
+              return { ...coin, change1h };
+            }
+          } catch(e) {}
+          return { ...coin, change1h: parseFloat(coin.priceChangePercent) };
+        }));
+
+        rawList = calculated.filter(c => c && !isNaN(c.change1h));
+        renderList();
+        document.getElementById('time').innerText = '最後更新時間：' + new Date().toLocaleTimeString();
+      } catch (err) {
+        document.getElementById('crypto-list').innerText = '數據抓取失敗，請稍後重試。';
+      }
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      document.getElementById('btn-up').className = 'tab-btn ' + (mode === 'up' ? 'active-up' : '');
+      document.getElementById('btn-down').className = 'tab-btn ' + (mode === 'down' ? 'active-down' : '');
+      renderList();
+    }
+
+    function renderList() {
+      if (!rawList.length) return;
+
+      const sorted = [...rawList].sort((a, b) => 
+        currentMode === 'up' ? b.change1h - a.change1h : a.change1h - b.change1h
+      );
+
+      const top20 = sorted.slice(0, 20);
+      const listEl = document.getElementById('crypto-list');
+      listEl.innerHTML = '';
+
+      top20.forEach((coin, index) => {
+        const symbolClean = coin.symbol.replace('USDT', '');
+        const change = coin.change1h.toFixed(2);
+        const isUp = coin.change1h >= 0;
+        const price = parseFloat(coin.lastPrice).toLocaleString();
+
+        listEl.innerHTML += `
+          <div class="card" onclick="toggleCard('${coin.symbol}')">
+            <div class="card-header">
               <span class="rank">${index + 1}</span>
               <div class="coin-info">
                 <div>
-                  <div class="symbol">${coin.symbol} <span style="font-size:12px;color:#64748b;">${coin.name}</span></div>
-                  <div class="price">$${coin.current_price.toLocaleString()}</div>
+                  <div class="symbol">${symbolClean} <span style="font-size:12px;color:#64748b;">/USDT</span></div>
+                  <div class="price">$${price}</div>
                 </div>
               </div>
               <div class="change ${isUp ? 'up' : 'down'}">
                 ${isUp ? '+' : ''}${change}%
               </div>
             </div>
-          `;
-        });
-        
-        document.getElementById('time').innerText = '最後更新時間：' + new Date().toLocaleTimeString();
-      } catch (err) {
-        document.getElementById('crypto-list').innerText = '數據抓取失敗，可能是 API 請求過於頻繁，請稍後重試。';
+            
+            <div class="chart-box" id="box-${coin.symbol}">
+              <div class="timeframe-btns" onclick="event.stopPropagation()">
+                <button class="tf-btn active" onclick="loadKLine('${coin.symbol}', '15m', this)">15M</button>
+                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '1h', this)">1H</button>
+                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '4h', this)">4H</button>
+                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '1d', this)">1D</button>
+              </div>
+              <div class="chart-container">
+                <canvas id="canvas-${coin.symbol}"></canvas>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function toggleCard(symbol) {
+      const box = document.getElementById(`box-${symbol}`);
+      const isHidden = box.style.display === '' || box.style.display === 'none';
+      
+      // 先關閉其他展開的圖表
+      document.querySelectorAll('.chart-box').forEach(el => el.style.display = 'none');
+
+      if (isHidden) {
+        box.style.display = 'block';
+        const defaultBtn = box.querySelector('.tf-btn');
+        loadKLine(symbol, '15m', defaultBtn);
       }
     }
 
-    // 頁面打開時執行一次
-    fetchTopGainers();
-    // 每 2 分鐘自動重新抓取並更新一次
-    setInterval(fetchTopGainers, 120000);
+    async function loadKLine(symbol, interval, btnEl) {
+      // 切換按鈕高亮
+      if(btnEl) {
+        const parent = btnEl.parentElement;
+        parent.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+        btnEl.classList.add('active');
+      }
+
+      // 銷毀舊圖表
+      if (activeChart.instance) {
+        activeChart.instance.destroy();
+      }
+
+      // 抓取幣安 K 線
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=30`);
+      const kData = await res.json();
+      
+      const prices = kData.map(k => parseFloat(k[4])); // 取收盤價
+      const labels = kData.map(k => {
+        const d = new Date(k[0]);
+        return interval === '1d' ? `${d.getMonth()+1}/${d.getDate()}` : `${d.getHours()}:${d.getMinutes() < 10 ? '0' : ''}${d.getMinutes()}`;
+      });
+
+      const isUp = prices[prices.length - 1] >= prices[0];
+      const lineColor = isUp ? '#4ade80' : '#f87171';
+
+      const ctx = document.getElementById(`canvas-${symbol}`).getContext('2d');
+      activeChart.instance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: prices,
+            borderColor: lineColor,
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+            y: { grid: { color: '#334155' }, ticks: { color: '#64748b', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    fetchBinanceData();
+    setInterval(fetchBinanceData, 60000); // 1 分鐘更新一次
   </script>
 </body>
 </html>
