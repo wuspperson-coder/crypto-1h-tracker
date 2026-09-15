@@ -1,59 +1,6 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">
-  <title>幣安 1小時 K線動態榜</title>
-  <!-- 引入 TradingView Lightweight Charts 官方 K 線圖庫 -->
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
-    .container { max-width: 600px; margin: 0 auto; }
-    h1 { text-align: center; color: #f0b90b; font-size: 20px; margin-bottom: 5px; }
-    .update-time { text-align: center; color: #94a3b8; font-size: 12px; margin-bottom: 15px; }
-    
-    .tabs { display: flex; gap: 10px; margin-bottom: 15px; }
-    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; background: #334155; color: #94a3b8; transition: 0.2s; }
-    .tab-btn.active-up { background: #22c55e; color: #fff; }
-    .tab-btn.active-down { background: #ef4444; color: #fff; }
-
-    .card { background: #1e293b; border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; cursor: pointer; transition: background 0.2s; }
-    .card:hover { background: #334155; }
-    .card-header { display: flex; justify-content: space-between; align-items: center; }
-    .rank { font-weight: bold; width: 30px; color: #64748b; }
-    .coin-info { flex: 1; display: flex; align-items: center; gap: 10px; }
-    .symbol { font-weight: bold; text-transform: uppercase; }
-    .price { color: #94a3b8; font-size: 14px; }
-    .change { font-weight: bold; padding: 6px 10px; border-radius: 6px; }
-    .up { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-    .down { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-
-    .chart-box { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #334155; }
-    .timeframe-btns { display: flex; gap: 6px; margin-bottom: 8px; }
-    .tf-btn { padding: 4px 8px; border: 1px solid #475569; background: transparent; color: #94a3b8; border-radius: 4px; font-size: 12px; cursor: pointer; }
-    .tf-btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; font-weight: bold; }
-    .kline-container { height: 180px; width: 100%; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>💛 幣安 1小時 K線動態榜</h1>
-    <div class="update-time" id="time">載入幣安數據中...</div>
-    
-    <div class="tabs">
-      <button class="tab-btn active-up" id="btn-up" onclick="switchMode('up')">🚀 1h 漲幅榜</button>
-      <button class="tab-btn" id="btn-down" onclick="switchMode('down')">📉 1h 跌幅榜</button>
-    </div>
-
-    <div id="crypto-list">正在向幣安 API 獲取行情...</div>
-  </div>
-
-  <script>
+<script>
     let rawList = [];
     let currentMode = 'up';
-    let currentChart = null;
-    let currentCandleSeries = null;
 
     async function fetchBinanceData() {
       try {
@@ -153,7 +100,10 @@
       if (isHidden) {
         box.style.display = 'block';
         const defaultBtn = box.querySelector('.tf-btn');
-        loadKLine(symbol, '15m', defaultBtn);
+        // 給予容器 50ms 展開渲染時間後再繪製圖表
+        setTimeout(() => {
+          loadKLine(symbol, '15m', defaultBtn);
+        }, 50);
       }
     }
 
@@ -165,17 +115,20 @@
       }
 
       const container = document.getElementById(`kline-${symbol}`);
-      container.innerHTML = ''; // 重設圖表容器
+      container.innerHTML = '';
 
-      // 建立 TradingView K 線圖畫布
+      // 取得實際渲染高度與寬度
+      const chartWidth = container.clientWidth || 300;
+      const chartHeight = 180;
+
       const chart = LightweightCharts.createChart(container, {
-        height: 180,
+        width: chartWidth,
+        height: chartHeight,
         layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
         grid: { vertLines: { color: '#334155' }, horzLines: { color: '#334155' } },
         timeScale: { timeVisible: true, secondsVisible: false }
       });
 
-      // 新增 Candlestick (K 棒) 系列
       const candleSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
@@ -184,12 +137,11 @@
         wickDownColor: '#ef4444',
       });
 
-      // 向幣安 API 抓取 K 線（包含開、高、低、收數據）
       const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=40`);
       const kData = await res.json();
       
       const formattedCandles = kData.map(k => ({
-        time: k[0] / 1000, // Unix 時間戳（秒）
+        time: Math.floor(k[0] / 1000), // 確保 Unix 時間戳格式正確
         open: parseFloat(k[1]),
         high: parseFloat(k[2]),
         low: parseFloat(k[3]),
@@ -197,11 +149,9 @@
       }));
 
       candleSeries.setData(formattedCandles);
-      chart.timeScale().fitContent(); // 自動縮放到極佳視野
+      chart.timeScale().fitContent();
     }
 
     fetchBinanceData();
     setInterval(fetchBinanceData, 60000);
   </script>
-</body>
-</html>
