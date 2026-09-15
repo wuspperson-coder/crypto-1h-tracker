@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安 1小時 K線動態榜</title>
-  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <title>幣安 1小時動態榜</title>
+  <!-- 換回最穩定的 Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
     .container { max-width: 600px; margin: 0 auto; }
@@ -32,12 +33,12 @@
     .timeframe-btns { display: flex; gap: 6px; margin-bottom: 8px; }
     .tf-btn { padding: 4px 8px; border: 1px solid #475569; background: transparent; color: #94a3b8; border-radius: 4px; font-size: 12px; cursor: pointer; }
     .tf-btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; font-weight: bold; }
-    .kline-container { height: 180px; width: 100%; display: flex; align-items: center; justify-content: center; color: #64748b; }
+    .chart-container { height: 120px; position: relative; width: 100%; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>💛 幣安 1小時 K線動態榜</h1>
+    <h1>💛 幣安 1小時動態榜</h1>
     <div class="update-time" id="time">載入幣安數據中...</div>
     
     <div class="tabs">
@@ -51,6 +52,7 @@
   <script>
     let rawList = [];
     let currentMode = 'up';
+    let activeCharts = {}; // 存放所有圖表，避免重複繪製報錯
 
     async function fetchBinanceData() {
       try {
@@ -129,12 +131,14 @@
             
             <div class="chart-box" id="box-${coin.symbol}">
               <div class="timeframe-btns" onclick="event.stopPropagation()">
-                <button class="tf-btn active" onclick="loadKLine('${coin.symbol}', '15m', this)">15M</button>
-                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '1h', this)">1H</button>
-                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '4h', this)">4H</button>
-                <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '1d', this)">1D</button>
+                <button class="tf-btn active" onclick="loadLineChart('${coin.symbol}', '15m', this)">15M</button>
+                <button class="tf-btn" onclick="loadLineChart('${coin.symbol}', '1h', this)">1H</button>
+                <button class="tf-btn" onclick="loadLineChart('${coin.symbol}', '4h', this)">4H</button>
+                <button class="tf-btn" onclick="loadLineChart('${coin.symbol}', '1d', this)">1D</button>
               </div>
-              <div class="kline-container" id="kline-${coin.symbol}">圖表載入中...</div>
+              <div class="chart-container">
+                <canvas id="canvas-${coin.symbol}"></canvas>
+              </div>
             </div>
           </div>
         `;
@@ -145,83 +149,73 @@
       const box = document.getElementById(`box-${symbol}`);
       const isHidden = box.style.display === '' || box.style.display === 'none';
       
+      // 點擊時先關閉其他展開的卡片
       document.querySelectorAll('.chart-box').forEach(el => el.style.display = 'none');
 
       if (isHidden) {
         box.style.display = 'block';
         const defaultBtn = box.querySelector('.tf-btn');
-        setTimeout(() => {
-          loadKLine(symbol, '15m', defaultBtn);
-        }, 50);
+        loadLineChart(symbol, '15m', defaultBtn);
       }
     }
 
-    async function loadKLine(symbol, interval, btnEl) {
+    async function loadLineChart(symbol, interval, btnEl) {
       if(btnEl) {
         const parent = btnEl.parentElement;
         parent.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
         btnEl.classList.add('active');
       }
 
-      const container = document.getElementById(`kline-${symbol}`);
-      container.innerHTML = ''; // 清除「載入中」文字
-
-      const chartWidth = container.clientWidth || (window.innerWidth - 80);
-
-      // 修正背景設定 (防止 v4 版本報錯)
-      const chart = LightweightCharts.createChart(container, {
-        width: chartWidth,
-        height: 180,
-        layout: { 
-          background: { type: 'solid', color: '#1e293b' }, // 設為卡片底色
-          textColor: '#94a3b8' 
-        },
-        grid: { vertLines: { color: '#334155' }, horzLines: { color: '#334155' } },
-        timeScale: { timeVisible: true, secondsVisible: false }
-      });
-
-      const candleSeries = chart.addCandlestickSeries({
-        upColor: '#22c55e',
-        downColor: '#ef4444',
-        borderVisible: false,
-        wickUpColor: '#22c55e',
-        wickDownColor: '#ef4444',
-      });
+      // 如果圖表已經存在，先銷毀它，防止 Chart.js 報錯
+      if (activeCharts[symbol]) {
+        activeCharts[symbol].destroy();
+      }
 
       try {
-        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=50`);
+        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=40`);
         const kData = await res.json();
         
-        let formattedCandles = kData.map(k => ({
-          time: Math.floor(k[0] / 1000), // 轉換為 UNIX 秒數
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-        }));
+        const prices = kData.map(k => parseFloat(k[4])); // 只取收盤價
+        const labels = kData.map(k => {
+          const d = new Date(k[0]);
+          return interval === '1d' ? `${d.getMonth()+1}/${d.getDate()}` : `${d.getHours()}:${d.getMinutes() < 10 ? '0' : ''}${d.getMinutes()}`;
+        });
 
-        // 過濾重複的時間點 (解決 API 偶發的資料重疊導致崩潰)
-        const uniqueData = [];
-        const seen = new Set();
-        for (let item of formattedCandles) {
-          if (!seen.has(item.time)) {
-            seen.add(item.time);
-            uniqueData.push(item);
+        // 判斷走勢是漲是跌，決定線條顏色
+        const isUp = prices[prices.length - 1] >= prices[0];
+        const lineColor = isUp ? '#4ade80' : '#f87171';
+
+        const ctx = document.getElementById(`canvas-${symbol}`).getContext('2d');
+        activeCharts[symbol] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: prices,
+              borderColor: lineColor,
+              borderWidth: 2,
+              pointRadius: 0, // 隱藏數據點讓線條更平滑
+              fill: false,
+              tension: 0.2 // 平滑曲線
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } }, // 隱藏圖例
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+              y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b', font: { size: 10 } } }
+            }
           }
-        }
-        
-        // 確保時間順序由舊到新
-        uniqueData.sort((a, b) => a.time - b.time);
-
-        candleSeries.setData(uniqueData);
-        chart.timeScale().fitContent();
-      } catch(err) {
-        container.innerHTML = '<div style="color:#f87171;">無法載入 K 線圖數據</div>';
+        });
+      } catch (e) {
+        console.error("圖表載入失敗", e);
       }
     }
 
     fetchBinanceData();
-    setInterval(fetchBinanceData, 60000);
+    setInterval(fetchBinanceData, 60000); // 1 分鐘更新一次
   </script>
 </body>
 </html>
