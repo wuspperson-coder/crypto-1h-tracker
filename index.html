@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安 1小時動態榜</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>幣安 1小時 K線動態榜</title>
+  <!-- 引入 TradingView Lightweight Charts 官方 K 線圖庫 -->
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f172a; color: #fff; margin: 0; padding: 20px; }
     .container { max-width: 600px; margin: 0 auto; }
@@ -32,12 +33,12 @@
     .timeframe-btns { display: flex; gap: 6px; margin-bottom: 8px; }
     .tf-btn { padding: 4px 8px; border: 1px solid #475569; background: transparent; color: #94a3b8; border-radius: 4px; font-size: 12px; cursor: pointer; }
     .tf-btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; font-weight: bold; }
-    .chart-container { height: 120px; position: relative; }
+    .kline-container { height: 180px; width: 100%; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>💛 幣安 1小時動態榜</h1>
+    <h1>💛 幣安 1小時 K線動態榜</h1>
     <div class="update-time" id="time">載入幣安數據中...</div>
     
     <div class="tabs">
@@ -51,24 +52,21 @@
   <script>
     let rawList = [];
     let currentMode = 'up';
-    let activeChart = { symbol: null, instance: null, interval: '15m' };
+    let currentChart = null;
+    let currentCandleSeries = null;
 
     async function fetchBinanceData() {
       try {
-        // 抓取幣安 24h ticker 數據
         const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
         const data = await res.json();
         
-        // 過濾出熱門的 USDT 交易對 (排除槓桿代幣如 UP/DOWN)
         const usdtPairs = data.filter(d => 
           d.symbol.endsWith('USDT') && 
           !d.symbol.includes('UPUSDT') && 
           !d.symbol.includes('DOWNUSDT') &&
-          parseFloat(d.quoteVolume) > 1000000 // 篩選 24h 成交量 > 100萬 USDT
+          parseFloat(d.quoteVolume) > 1000000
         );
 
-        // 為了取得精準 1h 漲跌幅，非同步抓取 K 線（前 20 大熱門幣種）
-        // 這裡先以 24h 漲幅前 40 名估算 1h 榜單範圍以提升效能
         const candidate = usdtPairs.sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 50);
 
         const calculated = await Promise.all(candidate.map(async (coin) => {
@@ -76,7 +74,7 @@
             const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=2`);
             const kData = await kRes.json();
             if (kData.length >= 2) {
-              const open1h = parseFloat(kData[0][1]); // 1小時前開盤價
+              const open1h = parseFloat(kData[0][1]);
               const currentPrice = parseFloat(coin.lastPrice);
               const change1h = ((currentPrice - open1h) / open1h) * 100;
               return { ...coin, change1h };
@@ -139,9 +137,7 @@
                 <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '4h', this)">4H</button>
                 <button class="tf-btn" onclick="loadKLine('${coin.symbol}', '1d', this)">1D</button>
               </div>
-              <div class="chart-container">
-                <canvas id="canvas-${coin.symbol}"></canvas>
-              </div>
+              <div class="kline-container" id="kline-${coin.symbol}"></div>
             </div>
           </div>
         `;
@@ -152,7 +148,6 @@
       const box = document.getElementById(`box-${symbol}`);
       const isHidden = box.style.display === '' || box.style.display === 'none';
       
-      // 先關閉其他展開的圖表
       document.querySelectorAll('.chart-box').forEach(el => el.style.display = 'none');
 
       if (isHidden) {
@@ -163,59 +158,50 @@
     }
 
     async function loadKLine(symbol, interval, btnEl) {
-      // 切換按鈕高亮
       if(btnEl) {
         const parent = btnEl.parentElement;
         parent.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
         btnEl.classList.add('active');
       }
 
-      // 銷毀舊圖表
-      if (activeChart.instance) {
-        activeChart.instance.destroy();
-      }
+      const container = document.getElementById(`kline-${symbol}`);
+      container.innerHTML = ''; // 重設圖表容器
 
-      // 抓取幣安 K 線
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=30`);
+      // 建立 TradingView K 線圖畫布
+      const chart = LightweightCharts.createChart(container, {
+        height: 180,
+        layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
+        grid: { vertLines: { color: '#334155' }, horzLines: { color: '#334155' } },
+        timeScale: { timeVisible: true, secondsVisible: false }
+      });
+
+      // 新增 Candlestick (K 棒) 系列
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e',
+        downColor: '#ef4444',
+        borderVisible: false,
+        wickUpColor: '#22c55e',
+        wickDownColor: '#ef4444',
+      });
+
+      // 向幣安 API 抓取 K 線（包含開、高、低、收數據）
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=40`);
       const kData = await res.json();
       
-      const prices = kData.map(k => parseFloat(k[4])); // 取收盤價
-      const labels = kData.map(k => {
-        const d = new Date(k[0]);
-        return interval === '1d' ? `${d.getMonth()+1}/${d.getDate()}` : `${d.getHours()}:${d.getMinutes() < 10 ? '0' : ''}${d.getMinutes()}`;
-      });
+      const formattedCandles = kData.map(k => ({
+        time: k[0] / 1000, // Unix 時間戳（秒）
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+      }));
 
-      const isUp = prices[prices.length - 1] >= prices[0];
-      const lineColor = isUp ? '#4ade80' : '#f87171';
-
-      const ctx = document.getElementById(`canvas-${symbol}`).getContext('2d');
-      activeChart.instance = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            data: prices,
-            borderColor: lineColor,
-            borderWidth: 2,
-            pointRadius: 0,
-            fill: false,
-            tension: 0.2
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
-            y: { grid: { color: '#334155' }, ticks: { color: '#64748b', font: { size: 10 } } }
-          }
-        }
-      });
+      candleSeries.setData(formattedCandles);
+      chart.timeScale().fitContent(); // 自動縮放到極佳視野
     }
 
     fetchBinanceData();
-    setInterval(fetchBinanceData, 60000); // 1 分鐘更新一次
+    setInterval(fetchBinanceData, 60000);
   </script>
 </body>
 </html>
