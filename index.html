@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>幣安動態漲跌幅榜</title>
-  <!-- 引入 Chart.js 及 縮放插件 (Zoom Plugin) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+  <!-- 引入 TradingView 官方 Widget 工具套件 -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 15px; }
@@ -46,9 +45,8 @@
     .up { background: rgba(14, 203, 129, 0.15); color: #0ecb81; }
     .down { background: rgba(246, 70, 93, 0.15); color: #f6465d; }
     
-    /* 圖表容器（修改版：預設正確尺寸） */
-    .chart-container { margin-top: 12px; height: 260px; position: relative; display: none; background: #141821; border-radius: 8px; padding: 8px; }
-    .chart-tips { font-size: 10px; color: #848e9c; text-align: right; margin-top: 4px; }
+    /* TradingView 微型 K 線圖容器 */
+    .tv-chart-container { margin-top: 12px; height: 320px; display: none; border-radius: 8px; overflow: hidden; }
   </style>
 </head>
 <body>
@@ -84,8 +82,8 @@
   <script>
     const CORRECT_PASS = "20050908";
     let currentTimeframe = '1h';
-    let currentMode = 'gainers'; // 'gainers' 或 'losers'
-    let chartInstances = {};
+    let currentMode = 'gainers';
+    let loadedCharts = {};
 
     function checkPassword() {
       const input = document.getElementById('password-input').value;
@@ -144,7 +142,6 @@
 
         const validData = processed.filter(d => d !== null);
         
-        // 根據漲幅/跌幅模式進行排序
         if (currentMode === 'gainers') {
           validData.sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]);
         } else {
@@ -161,9 +158,7 @@
     function renderList(list) {
       const listEl = document.getElementById('crypto-list');
       listEl.innerHTML = '';
-      
-      // 清空舊的 chart 實例記錄
-      chartInstances = {};
+      loadedCharts = {};
 
       list.forEach((coin, index) => {
         const change = coin[`change${currentTimeframe}`].toFixed(2);
@@ -175,7 +170,7 @@
 
         listEl.innerHTML += `
           <div class="card">
-            <div class="card-header" onclick="toggleChart('${coin.fullSymbol}')">
+            <div class="card-header" onclick="toggleTVChart('${coin.fullSymbol}')">
               <div>
                 <div class="symbol">${index + 1}. ${coin.symbol} <span style="font-size:12px;color:#848e9c;">/USDT</span></div>
                 <div class="price">$${coin.price.toLocaleString()}</div>
@@ -185,17 +180,15 @@
                 ${isUp ? '+' : ''}${change}%
               </div>
             </div>
-            <div class="chart-container" id="chart-box-${coin.fullSymbol}">
-              <canvas id="chart-${coin.fullSymbol}"></canvas>
-              <div class="chart-tips">💡 雙指或滾輪可放大/縮小，拖曳可平移圖表</div>
-            </div>
+            <div class="tv-chart-container" id="tv-box-${coin.fullSymbol}"></div>
           </div>
         `;
       });
     }
 
-    function toggleChart(symbol) {
-      const box = document.getElementById(`chart-box-${symbol}`);
+    // 展開/收起 TradingView 微型 K 線圖
+    function toggleTVChart(symbol) {
+      const box = document.getElementById(`tv-box-${symbol}`);
       const isVisible = box.style.display === 'block';
 
       if (isVisible) {
@@ -203,47 +196,24 @@
       } else {
         box.style.display = 'block';
         
-        // 如果圖表已存在，強制更新大小並繪製；否則重新創建
-        if (chartInstances[symbol]) {
-          setTimeout(() => chartInstances[symbol].resize(), 50);
-        } else {
-          fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=40`)
-            .then(res => res.json())
-            .then(klines => {
-              const labels = klines.map(k => new Date(k[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
-              const prices = klines.map(k => parseFloat(k[4]));
-
-              const ctx = document.getElementById(`chart-${symbol}`).getContext('2d');
-              chartInstances[symbol] = new Chart(ctx, {
-                type: 'line',
-                data: {
-                  labels: labels,
-                  datasets: [{
-                    label: '價格 (USDT)',
-                    data: prices,
-                    borderColor: '#f0b90b',
-                    backgroundColor: 'rgba(240, 185, 11, 0.1)',
-                    fill: true,
-                    tension: 0.2
-                  }]
-                },
-                options: {
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: false },
-                    zoom: {
-                      pan: { enabled: true, mode: 'xy' },
-                      zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
-                    }
-                  },
-                  scales: {
-                    x: { ticks: { color: '#848e9c', font: { size: 10 } } },
-                    y: { ticks: { color: '#848e9c', font: { size: 10 } } }
-                  }
-                }
-              });
-            });
+        // 第一次點開時初始化 TradingView 小圖表
+        if (!loadedCharts[symbol]) {
+          loadedCharts[symbol] = true;
+          new TradingView.widget({
+            "autosize": true,
+            "symbol": `BINANCE:${symbol}`,
+            "interval": "60",
+            "timezone": "Asia/Taipei",
+            "theme": "dark",
+            "style": "1", // 1 代表 Candlesticks (K線圖)
+            "locale": "zh_TW",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "hide_top_toolbar": false,
+            "hide_legend": true,
+            "save_image": false,
+            "container_id": `tv-box-${symbol}`
+          });
         }
       }
     }
