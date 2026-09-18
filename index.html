@@ -21,10 +21,16 @@
     h1 { text-align: center; color: #f0b90b; font-size: 20px; margin-bottom: 4px; }
     .update-time { text-align: center; color: #848e9c; font-size: 12px; margin-bottom: 15px; }
     
-    /* 切換按鈕組 */
-    .btn-group { display: flex; gap: 8px; margin-bottom: 15px; justify-content: center; }
-    .btn { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #2b313a; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; font-size: 14px; }
-    .btn.active { background: #f0b90b; color: #000; }
+    /* 漲/跌榜切換列 */
+    .tab-group { display: flex; gap: 8px; margin-bottom: 10px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #1e2329; color: #848e9c; font-weight: bold; cursor: pointer; font-size: 15px; }
+    .tab-btn.active-gainers { background: #22c55e; color: #fff; }
+    .tab-btn.active-losers { background: #ef4444; color: #fff; }
+
+    /* 時間週期選擇列 */
+    .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
+    .btn { flex: 1; padding: 8px; border: 1px solid #2b313a; border-radius: 6px; background: #141821; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; font-size: 13px; }
+    .btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; }
     
     /* 幣種卡片 */
     .card { background: #1e2329; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #2b313a; }
@@ -40,7 +46,7 @@
     .up { background: rgba(14, 203, 129, 0.15); color: #0ecb81; }
     .down { background: rgba(246, 70, 93, 0.15); color: #f6465d; }
     
-    /* 圖表容器（加大） */
+    /* 圖表容器（修改版：預設正確尺寸） */
     .chart-container { margin-top: 12px; height: 260px; position: relative; display: none; background: #141821; border-radius: 8px; padding: 8px; }
     .chart-tips { font-size: 10px; color: #848e9c; text-align: right; margin-top: 4px; }
   </style>
@@ -59,11 +65,17 @@
     <h1>💛 幣安加密貨幣動態榜</h1>
     <div class="update-time" id="time">載入中...</div>
     
+    <!-- 漲幅榜 / 跌幅榜 切換 -->
+    <div class="tab-group">
+      <button class="tab-btn active-gainers" id="tab-gainers" onclick="changeMode('gainers')">🚀 漲幅榜</button>
+      <button class="tab-btn" id="tab-losers" onclick="changeMode('losers')">📉 跌幅榜</button>
+    </div>
+
     <!-- 時間週期選擇 -->
     <div class="btn-group">
-      <button class="btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR 榜</button>
-      <button class="btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR 榜</button>
-      <button class="btn" id="btn-1d" onclick="changeTimeframe('1d')">1D 榜</button>
+      <button class="btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
+      <button class="btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
+      <button class="btn" id="btn-1d" onclick="changeTimeframe('1d')">1D</button>
     </div>
 
     <div id="crypto-list">獲取數據中...</div>
@@ -72,9 +84,9 @@
   <script>
     const CORRECT_PASS = "20050908";
     let currentTimeframe = '1h';
+    let currentMode = 'gainers'; // 'gainers' 或 'losers'
     let chartInstances = {};
 
-    // 密碼驗證
     function checkPassword() {
       const input = document.getElementById('password-input').value;
       if (input === CORRECT_PASS) {
@@ -86,7 +98,13 @@
       }
     }
 
-    // 切換時間週期
+    function changeMode(mode) {
+      currentMode = mode;
+      document.getElementById('tab-gainers').className = `tab-btn ${mode === 'gainers' ? 'active-gainers' : ''}`;
+      document.getElementById('tab-losers').className = `tab-btn ${mode === 'losers' ? 'active-losers' : ''}`;
+      fetchData();
+    }
+
     function changeTimeframe(tf) {
       currentTimeframe = tf;
       document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
@@ -94,49 +112,44 @@
       fetchData();
     }
 
-    // 抓取 Binance API 資料
     async function fetchData() {
       try {
         const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
         const data = await res.json();
         
-        // 只留 USDT 交易對
         let usdtPairs = data.filter(d => d.symbol.endsWith('USDT') && !d.symbol.includes('UP') && !d.symbol.includes('DOWN'));
-        
-        // 取得前 200 名熱門幣種計算漲跌
         usdtPairs = usdtPairs.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 100);
 
-        // 併行抓取 K線計算 1h, 4h, 15m 數據
         const processed = await Promise.all(usdtPairs.map(async (coin) => {
           try {
-            // 抓取 15M K線 (過去 30 根)
             const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=15m&limit=30`);
             const klines = await kRes.json();
             
             const currentPrice = parseFloat(coin.lastPrice);
-            const p15m = parseFloat(klines[klines.length - 2][4]); // 15分前收盤價
-            const p1h = parseFloat(klines[Math.max(0, klines.length - 5)][4]); // 1小時前
-            const p4h = parseFloat(klines[Math.max(0, klines.length - 17)][4]); // 4小時前
+            const p15m = parseFloat(klines[klines.length - 2][4]);
+            const p1h = parseFloat(klines[Math.max(0, klines.length - 5)][4]);
+            const p4h = parseFloat(klines[Math.max(0, klines.length - 17)][4]);
             
-            const change15m = ((currentPrice - p15m) / p15m) * 100;
-            const change1h = ((currentPrice - p1h) / p1h) * 100;
-            const change4h = ((currentPrice - p4h) / p4h) * 100;
-            const change1d = parseFloat(coin.priceChangePercent);
-
             return {
               symbol: coin.symbol.replace('USDT', ''),
               fullSymbol: coin.symbol,
               price: currentPrice,
-              change15m, change1h, change4h, change1d,
-              klines
+              change15m: ((currentPrice - p15m) / p15m) * 100,
+              change1h: ((currentPrice - p1h) / p1h) * 100,
+              change4h: ((currentPrice - p4h) / p4h) * 100,
+              change1d: parseFloat(coin.priceChangePercent)
             };
           } catch(e) { return null; }
         }));
 
         const validData = processed.filter(d => d !== null);
         
-        // 根據選擇的時間週期排序
-        validData.sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]);
+        // 根據漲幅/跌幅模式進行排序
+        if (currentMode === 'gainers') {
+          validData.sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]);
+        } else {
+          validData.sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]);
+        }
 
         renderList(validData.slice(0, 20));
         document.getElementById('time').innerText = '最後更新：' + new Date().toLocaleTimeString();
@@ -145,23 +158,24 @@
       }
     }
 
-    // 渲染排行榜列表
     function renderList(list) {
       const listEl = document.getElementById('crypto-list');
       listEl.innerHTML = '';
+      
+      // 清空舊的 chart 實例記錄
+      chartInstances = {};
 
       list.forEach((coin, index) => {
         const change = coin[`change${currentTimeframe}`].toFixed(2);
         const isUp = change >= 0;
         
-        // 15M 異動標籤
         let badgeHtml = '';
         if (coin.change15m >= 2.0) badgeHtml = `<span class="badge badge-pump">⚡ 15M急漲 +${coin.change15m.toFixed(1)}%</span>`;
         if (coin.change15m <= -2.0) badgeHtml = `<span class="badge badge-dump">🚨 15M急跌 ${coin.change15m.toFixed(1)}%</span>`;
 
         listEl.innerHTML += `
           <div class="card">
-            <div class="card-header" onclick="toggleChart('${coin.fullSymbol}', this)">
+            <div class="card-header" onclick="toggleChart('${coin.fullSymbol}')">
               <div>
                 <div class="symbol">${index + 1}. ${coin.symbol} <span style="font-size:12px;color:#848e9c;">/USDT</span></div>
                 <div class="price">$${coin.price.toLocaleString()}</div>
@@ -180,54 +194,61 @@
       });
     }
 
-    // 開啟/關閉圖表並載入可縮放 Chart.js
-    function toggleChart(symbol, headerEl) {
+    function toggleChart(symbol) {
       const box = document.getElementById(`chart-box-${symbol}`);
       const isVisible = box.style.display === 'block';
-      box.style.display = isVisible ? 'none' : 'block';
 
-      if (!isVisible && !chartInstances[symbol]) {
-        fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=40`)
-          .then(res => res.json())
-          .then(klines => {
-            const labels = klines.map(k => new Date(k[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
-            const prices = klines.map(k => parseFloat(k[4]));
+      if (isVisible) {
+        box.style.display = 'none';
+      } else {
+        box.style.display = 'block';
+        
+        // 如果圖表已存在，強制更新大小並繪製；否則重新創建
+        if (chartInstances[symbol]) {
+          setTimeout(() => chartInstances[symbol].resize(), 50);
+        } else {
+          fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=40`)
+            .then(res => res.json())
+            .then(klines => {
+              const labels = klines.map(k => new Date(k[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+              const prices = klines.map(k => parseFloat(k[4]));
 
-            const ctx = document.getElementById(`chart-${symbol}`).getContext('2d');
-            chartInstances[symbol] = new Chart(ctx, {
-              type: 'line',
-              data: {
-                labels: labels,
-                datasets: [{
-                  label: '價格 (USDT)',
-                  data: prices,
-                  borderColor: '#f0b90b',
-                  backgroundColor: 'rgba(240, 185, 11, 0.1)',
-                  fill: true,
-                  tension: 0.2
-                }]
-              },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { display: false },
-                  zoom: {
-                    pan: { enabled: true, mode: 'xy' }, // 支援平移
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' } // 支援滾輪與手勢縮放
-                  }
+              const ctx = document.getElementById(`chart-${symbol}`).getContext('2d');
+              chartInstances[symbol] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                  labels: labels,
+                  datasets: [{
+                    label: '價格 (USDT)',
+                    data: prices,
+                    borderColor: '#f0b90b',
+                    backgroundColor: 'rgba(240, 185, 11, 0.1)',
+                    fill: true,
+                    tension: 0.2
+                  }]
                 },
-                scales: {
-                  x: { ticks: { color: '#848e9c', font: { size: 10 } } },
-                  y: { ticks: { color: '#848e9c', font: { size: 10 } } }
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    zoom: {
+                      pan: { enabled: true, mode: 'xy' },
+                      zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+                    }
+                  },
+                  scales: {
+                    x: { ticks: { color: '#848e9c', font: { size: 10 } } },
+                    y: { ticks: { color: '#848e9c', font: { size: 10 } } }
+                  }
                 }
-              }
+              });
             });
-          });
+        }
       }
     }
 
-    setInterval(fetchData, 120000); // 2分鐘自動重新刷新
+    setInterval(fetchData, 120000);
   </script>
 </body>
 </html>
