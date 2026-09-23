@@ -4,108 +4,136 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安動態漲跌幅榜</title>
-  <!-- 引入 TradingView 官方 Widget 工具套件 -->
+  <title>幣安動態多空雷達看板</title>
+  <!-- 引入 TradingView 工具與 Chart.js -->
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 15px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 0; display: flex; min-height: 100vh; }
     
-    /* 密碼鎖遮罩 */
-    #lock-screen { position: fixed; top:0; left:0; width:100%; height:100%; background:#0b0e14; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:9999; }
-    #lock-screen input { padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #363c4e; background: #1e2329; color: #fff; text-align: center; margin-bottom: 12px; width: 220px; }
-    #lock-screen button { padding: 10px 24px; font-size: 16px; font-weight: bold; background: #f0b90b; border: none; border-radius: 8px; cursor: pointer; color: #000; }
-    
-    .container { max-width: 600px; margin: 0 auto; display: none; }
-    h1 { text-align: center; color: #f0b90b; font-size: 20px; margin-bottom: 4px; }
-    .update-time { text-align: center; color: #848e9c; font-size: 12px; margin-bottom: 15px; }
-    
-    /* 漲/跌榜切換列 */
-    .tab-group { display: flex; gap: 8px; margin-bottom: 10px; }
-    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #1e2329; color: #848e9c; font-weight: bold; cursor: pointer; font-size: 15px; }
-    .tab-btn.active-gainers { background: #22c55e; color: #fff; }
-    .tab-btn.active-losers { background: #ef4444; color: #fff; }
+    /* 左側 Sidebar 預留框架 (Desktop) */
+    .sidebar { width: 220px; background: #141821; border-right: 1px solid #2b313a; padding: 20px 15px; flex-shrink: 0; display: flex; flex-direction: column; }
+    .sidebar-title { color: #f0b90b; font-size: 16px; font-weight: bold; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+    .sidebar-menu { list-style: none; padding: 0; margin: 0; }
+    .sidebar-item { padding: 10px 12px; border-radius: 6px; color: #848e9c; font-size: 14px; font-weight: 500; margin-bottom: 6px; cursor: pointer; transition: 0.2s; }
+    .sidebar-item.active, .sidebar-item:hover { background: #1e2329; color: #f0b90b; }
+    .sidebar-placeholder { margin-top: auto; padding: 12px; border: 1px dashed #2b313a; border-radius: 8px; font-size: 11px; color: #474d57; text-align: center; }
 
-    /* 時間週期選擇列 */
-    .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
-    .btn { flex: 1; padding: 8px; border: 1px solid #2b313a; border-radius: 6px; background: #141821; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; font-size: 13px; }
-    .btn.active { background: #f0b90b; color: #000; border-color: #f0b90b; }
-    
+    /* 右側主內容區 */
+    .main-content { flex: 1; padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+    h1 { font-size: 22px; color: #f0b90b; margin: 0; }
+    .update-time { color: #848e9c; font-size: 12px; }
+
+    /* 時間週期選擇器 */
+    .timeframe-group { display: flex; gap: 6px; background: #141821; padding: 4px; border-radius: 8px; border: 1px solid #2b313a; }
+    .tf-btn { padding: 6px 16px; border: none; border-radius: 6px; background: transparent; color: #848e9c; font-weight: bold; cursor: pointer; font-size: 13px; }
+    .tf-btn.active { background: #f0b90b; color: #000; }
+
+    /* 兩欄式多空看板 (Dashboard) */
+    .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .column-title { font-size: 16px; font-weight: bold; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .title-bull { background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .title-bear { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+
     /* 幣種卡片 */
     .card { background: #1e2329; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #2b313a; }
     .card-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
     .symbol { font-size: 16px; font-weight: bold; }
     .price { color: #848e9c; font-size: 13px; margin-top: 2px; }
-    .badges { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .badges { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
     .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
     .badge-pump { background: rgba(14, 203, 129, 0.2); color: #0ecb81; border: 1px solid #0ecb81; }
     .badge-dump { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
-    
+
     .change { font-weight: bold; padding: 8px 12px; border-radius: 6px; font-size: 15px; }
     .up { background: rgba(14, 203, 129, 0.15); color: #0ecb81; }
     .down { background: rgba(246, 70, 93, 0.15); color: #f6465d; }
+
+    /* 展開圖表與數據區塊 */
+    .charts-wrapper { margin-top: 14px; display: none; border-top: 1px solid #2b313a; padding-top: 12px; }
+    .tv-chart-container { height: 380px; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
     
-    /* TradingView 微型 K 線圖容器 */
-    .tv-chart-container { margin-top: 12px; height: 320px; display: none; border-radius: 8px; overflow: hidden; }
+    /* EMA 狀態面板 */
+    .ema-panel { background: #141821; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #2b313a; display: flex; justify-content: space-around; text-align: center; font-size: 11px; }
+    .ema-item-val { font-weight: bold; margin-top: 2px; }
+    .ema-10 { color: #38bdf8; }
+    .ema-21 { color: #facc15; }
+    .ema-50 { color: #c084fc; }
+
+    .oi-chart-container { height: 160px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
+    .chart-title { font-size: 11px; color: #848e9c; margin-bottom: 6px; font-weight: bold; }
+
+    /* 手機端 RWD 排版適應 */
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; border-right: none; border-bottom: 1px solid #2b313a; padding: 12px 15px; }
+      .sidebar-placeholder { display: none; }
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
 
-  <!-- 密碼鎖畫面 -->
-  <div id="lock-screen">
-    <h2 style="color:#f0b90b; margin-bottom:15px;">🔒 請輸入解鎖密碼</h2>
-    <input type="password" id="password-input" placeholder="請輸入密碼">
-    <button onclick="checkPassword()">解鎖網站</button>
+  <!-- 左側 Sidebar 預留區塊 -->
+  <div class="sidebar">
+    <div class="sidebar-title">⚡ 動態數據雷達</div>
+    <ul class="sidebar-menu">
+      <li class="sidebar-item active">📊 行情多空看板</li>
+      <!-- 未來擴充選單位置 -->
+    </ul>
+    <div class="sidebar-placeholder">
+      💡 側邊欄空間預留中<br>未來可新增擴充工具
+    </div>
   </div>
 
-  <!-- 主網站內容 -->
-  <div class="container" id="main-content">
-    <h1>💛 幣安加密貨幣動態榜</h1>
-    <div class="update-time" id="time">載入中...</div>
-    
-    <!-- 漲幅榜 / 跌幅榜 切換 -->
-    <div class="tab-group">
-      <button class="tab-btn active-gainers" id="tab-gainers" onclick="changeMode('gainers')">🚀 漲幅榜</button>
-      <button class="tab-btn" id="tab-losers" onclick="changeMode('losers')">📉 跌幅榜</button>
+  <!-- 右側主內容區 -->
+  <div class="main-content">
+    <div class="header">
+      <div>
+        <h1>💛 幣安加密貨幣多空強勢榜</h1>
+        <div class="update-time" id="time">數據載入中...</div>
+      </div>
+      
+      <!-- 時間週期切換 -->
+      <div class="timeframe-group">
+        <button class="tf-btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
+        <button class="tf-btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
+        <button class="tf-btn" id="btn-1d" onclick="changeTimeframe('1d')">1D</button>
+      </div>
     </div>
 
-    <!-- 時間週期選擇 -->
-    <div class="btn-group">
-      <button class="btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
-      <button class="btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
-      <button class="btn" id="btn-1d" onclick="changeTimeframe('1d')">1D</button>
-    </div>
+    <!-- 兩欄式多空並排 Dashboard -->
+    <div class="dashboard-grid">
+      <!-- 左欄：多頭強勢榜 -->
+      <div>
+        <div class="column-title title-bull">
+          <span>🚀 多頭漲幅榜 (Bullish)</span>
+          <span style="font-size:12px;" id="bull-count">Top 15</span>
+        </div>
+        <div id="bull-list">載入中...</div>
+      </div>
 
-    <div id="crypto-list">獲取數據中...</div>
+      <!-- 右欄：空頭弱勢榜 -->
+      <div>
+        <div class="column-title title-bear">
+          <span>📉 空頭跌幅榜 (Bearish)</span>
+          <span style="font-size:12px;" id="bear-count">Top 15</span>
+        </div>
+        <div id="bear-list">載入中...</div>
+      </div>
+    </div>
   </div>
 
   <script>
-    const CORRECT_PASS = "20050908";
     let currentTimeframe = '1h';
-    let currentMode = 'gainers';
-    let loadedCharts = {};
-
-    function checkPassword() {
-      const input = document.getElementById('password-input').value;
-      if (input === CORRECT_PASS) {
-        document.getElementById('lock-screen').style.display = 'none';
-        document.getElementById('main-content').style.display = 'block';
-        fetchData();
-      } else {
-        alert('密碼錯誤！');
-      }
-    }
-
-    function changeMode(mode) {
-      currentMode = mode;
-      document.getElementById('tab-gainers').className = `tab-btn ${mode === 'gainers' ? 'active-gainers' : ''}`;
-      document.getElementById('tab-losers').className = `tab-btn ${mode === 'losers' ? 'active-losers' : ''}`;
-      fetchData();
-    }
+    let loadedTVCharts = {};
+    let oiChartInstances = {};
 
     function changeTimeframe(tf) {
       currentTimeframe = tf;
-      document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.timeframe-group .tf-btn').forEach(b => b.classList.remove('active'));
       document.getElementById(`btn-${tf}`).classList.add('active');
       fetchData();
     }
@@ -116,11 +144,11 @@
         const data = await res.json();
         
         let usdtPairs = data.filter(d => d.symbol.endsWith('USDT') && !d.symbol.includes('UP') && !d.symbol.includes('DOWN'));
-        usdtPairs = usdtPairs.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 100);
+        usdtPairs = usdtPairs.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 80);
 
         const processed = await Promise.all(usdtPairs.map(async (coin) => {
           try {
-            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=15m&limit=30`);
+            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=15m&limit=60`);
             const klines = await kRes.json();
             
             const currentPrice = parseFloat(coin.lastPrice);
@@ -128,6 +156,12 @@
             const p1h = parseFloat(klines[Math.max(0, klines.length - 5)][4]);
             const p4h = parseFloat(klines[Math.max(0, klines.length - 17)][4]);
             
+            // 計算 EMA 10, 21, 50
+            const closes = klines.map(k => parseFloat(k[4]));
+            const ema10 = calcEMA(closes, 10);
+            const ema21 = calcEMA(closes, 21);
+            const ema50 = calcEMA(closes, 50);
+
             return {
               symbol: coin.symbol.replace('USDT', ''),
               fullSymbol: coin.symbol,
@@ -135,30 +169,42 @@
               change15m: ((currentPrice - p15m) / p15m) * 100,
               change1h: ((currentPrice - p1h) / p1h) * 100,
               change4h: ((currentPrice - p4h) / p4h) * 100,
-              change1d: parseFloat(coin.priceChangePercent)
+              change1d: parseFloat(coin.priceChangePercent),
+              ema10, ema21, ema50
             };
           } catch(e) { return null; }
         }));
 
         const validData = processed.filter(d => d !== null);
         
-        if (currentMode === 'gainers') {
-          validData.sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]);
-        } else {
-          validData.sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]);
-        }
+        // 分別計算多頭與空頭榜
+        const bullSorted = [...validData].sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]).slice(0, 15);
+        const bearSorted = [...validData].sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]).slice(0, 15);
 
-        renderList(validData.slice(0, 20));
+        renderColumn('bull-list', bullSorted);
+        renderColumn('bear-list', bearSorted);
+
         document.getElementById('time').innerText = '最後更新：' + new Date().toLocaleTimeString();
       } catch (err) {
-        document.getElementById('crypto-list').innerText = '數據載入失敗，請稍後重試。';
+        document.getElementById('bull-list').innerText = '數據載入失敗。';
+        document.getElementById('bear-list').innerText = '數據載入失敗。';
       }
     }
 
-    function renderList(list) {
-      const listEl = document.getElementById('crypto-list');
-      listEl.innerHTML = '';
-      loadedCharts = {};
+    // 計算 EMA 均線公式
+    function calcEMA(prices, period) {
+      if (prices.length < period) return prices[prices.length - 1];
+      const k = 2 / (period + 1);
+      let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      for (let i = period; i < prices.length; i++) {
+        ema = prices[i] * k + ema * (1 - k);
+      }
+      return ema;
+    }
+
+    function renderColumn(containerId, list) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
 
       list.forEach((coin, index) => {
         const change = coin[`change${currentTimeframe}`].toFixed(2);
@@ -168,9 +214,9 @@
         if (coin.change15m >= 2.0) badgeHtml = `<span class="badge badge-pump">⚡ 15M急漲 +${coin.change15m.toFixed(1)}%</span>`;
         if (coin.change15m <= -2.0) badgeHtml = `<span class="badge badge-dump">🚨 15M急跌 ${coin.change15m.toFixed(1)}%</span>`;
 
-        listEl.innerHTML += `
+        container.innerHTML += `
           <div class="card">
-            <div class="card-header" onclick="toggleTVChart('${coin.fullSymbol}')">
+            <div class="card-header" onclick="toggleCharts('${coin.fullSymbol}')">
               <div>
                 <div class="symbol">${index + 1}. ${coin.symbol} <span style="font-size:12px;color:#848e9c;">/USDT</span></div>
                 <div class="price">$${coin.price.toLocaleString()}</div>
@@ -180,44 +226,125 @@
                 ${isUp ? '+' : ''}${change}%
               </div>
             </div>
-            <div class="tv-chart-container" id="tv-box-${coin.fullSymbol}"></div>
+            
+            <div class="charts-wrapper" id="wrapper-${coin.fullSymbol}">
+              <div class="chart-title">📈 TradingView 1H K線 (含 EMA 10/21/50)</div>
+              <div class="tv-chart-container" id="tv-box-${coin.fullSymbol}"></div>
+              
+              <!-- 獨立 EMA 數據欄 -->
+              <div class="ema-panel">
+                <div><div class="ema-10">EMA 10</div><div class="ema-item-val">$${coin.ema10.toFixed(3)}</div></div>
+                <div><div class="ema-21">EMA 21</div><div class="ema-item-val">$${coin.ema21.toFixed(3)}</div></div>
+                <div><div class="ema-50">EMA 50</div><div class="ema-item-val">$${coin.ema50.toFixed(3)}</div></div>
+              </div>
+
+              <div class="chart-title">📊 合約未平倉量 (OI 持倉價值)</div>
+              <div class="oi-chart-container">
+                <canvas id="oi-chart-${coin.fullSymbol}"></canvas>
+              </div>
+            </div>
           </div>
         `;
       });
     }
 
-    // 展開/收起 TradingView 微型 K 線圖
-    function toggleTVChart(symbol) {
-      const box = document.getElementById(`tv-box-${symbol}`);
-      const isVisible = box.style.display === 'block';
+    function toggleCharts(symbol) {
+      const wrapper = document.getElementById(`wrapper-${symbol}`);
+      const isVisible = wrapper.style.display === 'block';
 
       if (isVisible) {
-        box.style.display = 'none';
+        wrapper.style.display = 'none';
       } else {
-        box.style.display = 'block';
+        wrapper.style.display = 'block';
         
-        // 第一次點開時初始化 TradingView 小圖表
-        if (!loadedCharts[symbol]) {
-          loadedCharts[symbol] = true;
+        // 載入 TradingView 小工具並帶入 EMA 指標
+        if (!loadedTVCharts[symbol]) {
+          loadedTVCharts[symbol] = true;
           new TradingView.widget({
             "autosize": true,
             "symbol": `BINANCE:${symbol}`,
             "interval": "60",
             "timezone": "Asia/Taipei",
             "theme": "dark",
-            "style": "1", // 1 代表 Candlesticks (K線圖)
+            "style": "1",
             "locale": "zh_TW",
-            "toolbar_bg": "#f1f3f6",
             "enable_publishing": false,
             "hide_top_toolbar": false,
-            "hide_legend": true,
+            "hide_legend": false,
             "save_image": false,
-            "container_id": `tv-box-${symbol}`
+            "container_id": `tv-box-${symbol}`,
+            "studies": [
+              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 10 } },
+              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 21 } },
+              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 50 } }
+            ]
           });
+        }
+
+        if (!oiChartInstances[symbol]) {
+          fetchOIHistory(symbol);
+        } else {
+          setTimeout(() => oiChartInstances[symbol].resize(), 50);
         }
       }
     }
 
+    async function fetchOIHistory(symbol) {
+      try {
+        const res = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=30`);
+        const data = await res.json();
+        
+        if (!Array.isArray(data) || data.length === 0) {
+          document.getElementById(`oi-chart-${symbol}`).outerHTML = '<div style="font-size:12px;color:#848e9c;text-align:center;padding-top:40px;">該幣種無合約或 OI 數據</div>';
+          return;
+        }
+
+        const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+        const oiValues = data.map(d => parseFloat(d.sumOpenInterestValue));
+
+        const ctx = document.getElementById(`oi-chart-${symbol}`).getContext('2d');
+        oiChartInstances[symbol] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'OI 持倉價值 (USD)',
+              data: oiValues,
+              borderColor: '#38bdf8',
+              backgroundColor: 'rgba(56, 189, 248, 0.15)',
+              fill: true,
+              tension: 0.2,
+              borderWidth: 2,
+              pointRadius: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
+              y: { 
+                ticks: { 
+                  color: '#848e9c', 
+                  font: { size: 9 },
+                  callback: function(val) {
+                    if (val >= 1e6) return '$' + (val / 1e6).toFixed(1) + 'M';
+                    if (val >= 1e3) return '$' + (val / 1e3).toFixed(0) + 'K';
+                    return '$' + val;
+                  }
+                },
+                grid: { color: '#2b313a' }
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('OI 抓取失敗', err);
+      }
+    }
+
+    fetchData();
     setInterval(fetchData, 120000);
   </script>
 </body>
