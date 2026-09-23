@@ -31,11 +31,16 @@
     .tf-btn { padding: 6px 16px; border: none; border-radius: 6px; background: transparent; color: #848e9c; font-weight: bold; cursor: pointer; font-size: 13px; }
     .tf-btn.active { background: #f0b90b; color: #000; }
 
+    /* 頁面切換 */
+    .page-section { display: none; }
+    .page-section.active { display: block; }
+
     /* 兩欄式多空看板 (Dashboard) */
     .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     .column-title { font-size: 16px; font-weight: bold; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     .title-bull { background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
     .title-bear { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .title-pump { background: rgba(240, 185, 11, 0.15); color: #f0b90b; border: 1px solid rgba(240, 185, 11, 0.3); }
 
     /* 幣種卡片 */
     .card { background: #1e2329; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #2b313a; }
@@ -46,6 +51,8 @@
     .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
     .badge-pump { background: rgba(14, 203, 129, 0.2); color: #0ecb81; border: 1px solid #0ecb81; }
     .badge-dump { background: rgba(246, 70, 93, 0.2); color: #f6465d; border: 1px solid #f6465d; }
+    .badge-oi { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
+    .badge-vol { background: rgba(250, 204, 21, 0.2); color: #facc15; border: 1px solid #facc15; }
 
     .change { font-weight: bold; padding: 8px 12px; border-radius: 6px; font-size: 15px; }
     .up { background: rgba(14, 203, 129, 0.15); color: #0ecb81; }
@@ -54,18 +61,10 @@
     /* 展開圖表與數據區塊 */
     .charts-wrapper { margin-top: 14px; display: none; border-top: 1px solid #2b313a; padding-top: 12px; }
     .tv-chart-container { height: 380px; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
-    
-    /* EMA 狀態面板 */
-    .ema-panel { background: #141821; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #2b313a; display: flex; justify-content: space-around; text-align: center; font-size: 11px; }
-    .ema-item-val { font-weight: bold; margin-top: 2px; }
-    .ema-10 { color: #38bdf8; }
-    .ema-21 { color: #facc15; }
-    .ema-50 { color: #c084fc; }
-
     .oi-chart-container { height: 160px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
     .chart-title { font-size: 11px; color: #848e9c; margin-bottom: 6px; font-weight: bold; }
 
-    /* 手機端 RWD 排版適應 */
+    /* 手機端 RWD 適應 */
     @media (max-width: 900px) {
       body { flex-direction: column; }
       .sidebar { width: 100%; border-right: none; border-bottom: 1px solid #2b313a; padding: 12px 15px; }
@@ -76,15 +75,15 @@
 </head>
 <body>
 
-  <!-- 左側 Sidebar 預留區塊 -->
+  <!-- 左側 Sidebar 選單 -->
   <div class="sidebar">
     <div class="sidebar-title">⚡ 動態數據雷達</div>
     <ul class="sidebar-menu">
-      <li class="sidebar-item active">📊 行情多空看板</li>
-      <!-- 未來擴充選單位置 -->
+      <li class="sidebar-item active" id="menu-dashboard" onclick="switchPage('dashboard')">📊 行情多空看板</li>
+      <li class="sidebar-item" id="menu-pump" onclick="switchPage('pump')">🚀 可能會爆噴的幣</li>
     </ul>
     <div class="sidebar-placeholder">
-      💡 側邊欄空間預留中<br>未來可新增擴充工具
+      💡 側邊欄選單已啟用<br>未來可繼續擴充新功能
     </div>
   </div>
 
@@ -92,44 +91,75 @@
   <div class="main-content">
     <div class="header">
       <div>
-        <h1>💛 幣安加密貨幣多空強勢榜</h1>
+        <h1 id="page-title">💛 幣安加密貨幣多空強勢榜</h1>
         <div class="update-time" id="time">數據載入中...</div>
       </div>
       
       <!-- 時間週期切換 -->
-      <div class="timeframe-group">
+      <div class="timeframe-group" id="tf-group">
         <button class="tf-btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
         <button class="tf-btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
         <button class="tf-btn" id="btn-1d" onclick="changeTimeframe('1d')">1D</button>
       </div>
     </div>
 
-    <!-- 兩欄式多空並排 Dashboard -->
-    <div class="dashboard-grid">
-      <!-- 左欄：多頭強勢榜 -->
-      <div>
-        <div class="column-title title-bull">
-          <span>🚀 多頭漲幅榜 (Bullish)</span>
-          <span style="font-size:12px;" id="bull-count">Top 15</span>
+    <!-- 頁面 1：行情多空看板 -->
+    <div class="page-section active" id="page-dashboard">
+      <div class="dashboard-grid">
+        <!-- 左欄：多頭強勢榜 -->
+        <div>
+          <div class="column-title title-bull">
+            <span>🚀 多頭漲幅榜 (Bullish)</span>
+            <span style="font-size:12px;">Top 15</span>
+          </div>
+          <div id="bull-list">載入中...</div>
         </div>
-        <div id="bull-list">載入中...</div>
-      </div>
 
-      <!-- 右欄：空頭弱勢榜 -->
-      <div>
-        <div class="column-title title-bear">
-          <span>📉 空頭跌幅榜 (Bearish)</span>
-          <span style="font-size:12px;" id="bear-count">Top 15</span>
+        <!-- 右欄：空頭弱勢榜 -->
+        <div>
+          <div class="column-title title-bear">
+            <span>📉 空頭跌幅榜 (Bearish)</span>
+            <span style="font-size:12px;">Top 15</span>
+          </div>
+          <div id="bear-list">載入中...</div>
         </div>
-        <div id="bear-list">載入中...</div>
       </div>
+    </div>
+
+    <!-- 頁面 2：可能會爆噴的幣 -->
+    <div class="page-section" id="page-pump">
+      <div class="column-title title-pump">
+        <span>🔥 15M 價量 + OI 三重激增熱門幣 (突破動能過濾)</span>
+        <span style="font-size:12px;" id="pump-count">監控中...</span>
+      </div>
+      <div id="pump-list">掃描市場中，請稍候...</div>
     </div>
   </div>
 
   <script>
     let currentTimeframe = '1h';
+    let currentPage = 'dashboard';
     let loadedTVCharts = {};
     let oiChartInstances = {};
+
+    function switchPage(page) {
+      currentPage = page;
+      document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active'));
+
+      if (page === 'dashboard') {
+        document.getElementById('menu-dashboard').classList.add('active');
+        document.getElementById('page-dashboard').classList.add('active');
+        document.getElementById('page-title').innerText = '💛 幣安加密貨幣多空強勢榜';
+        document.getElementById('tf-group').style.display = 'flex';
+      } else if (page === 'pump') {
+        document.getElementById('menu-pump').classList.add('active');
+        document.getElementById('page-pump').classList.add('active');
+        document.getElementById('page-title').innerText = '🚀 可能會爆噴的幣 (15M 三重確認)';
+        document.getElementById('tf-group').style.display = 'none';
+      }
+      fetchData();
+    }
 
     function changeTimeframe(tf) {
       currentTimeframe = tf;
@@ -148,19 +178,31 @@
 
         const processed = await Promise.all(usdtPairs.map(async (coin) => {
           try {
-            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=15m&limit=60`);
+            // 抓取 15M K線 (含成交量)
+            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=15m&limit=30`);
             const klines = await kRes.json();
-            
+
+            // 抓取 15M OI 數據
+            let oiChange = 0;
+            try {
+              const oiRes = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${coin.symbol}&period=15m&limit=3`);
+              const oiData = await oiRes.json();
+              if (Array.isArray(oiData) && oiData.length >= 2) {
+                const latestOI = parseFloat(oiData[oiData.length - 1].sumOpenInterestValue);
+                const prevOI = parseFloat(oiData[oiData.length - 2].sumOpenInterestValue);
+                oiChange = ((latestOI - prevOI) / prevOI) * 100;
+              }
+            } catch(e) {}
+
             const currentPrice = parseFloat(coin.lastPrice);
             const p15m = parseFloat(klines[klines.length - 2][4]);
             const p1h = parseFloat(klines[Math.max(0, klines.length - 5)][4]);
             const p4h = parseFloat(klines[Math.max(0, klines.length - 17)][4]);
-            
-            // 計算 EMA 10, 21, 50
-            const closes = klines.map(k => parseFloat(k[4]));
-            const ema10 = calcEMA(closes, 10);
-            const ema21 = calcEMA(closes, 21);
-            const ema50 = calcEMA(closes, 50);
+
+            // 計算 15M 成交量比值
+            const currentVol = parseFloat(klines[klines.length - 1][5]);
+            const avgVol = klines.slice(0, 20).reduce((acc, curr) => acc + parseFloat(curr[5]), 0) / 20;
+            const volRatio = avgVol > 0 ? (currentVol / avgVol) : 1;
 
             return {
               symbol: coin.symbol.replace('USDT', ''),
@@ -170,39 +212,40 @@
               change1h: ((currentPrice - p1h) / p1h) * 100,
               change4h: ((currentPrice - p4h) / p4h) * 100,
               change1d: parseFloat(coin.priceChangePercent),
-              ema10, ema21, ema50
+              volRatio,
+              oiChange
             };
           } catch(e) { return null; }
         }));
 
         const validData = processed.filter(d => d !== null);
-        
-        // 分別計算多頭與空頭榜
-        const bullSorted = [...validData].sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]).slice(0, 15);
-        const bearSorted = [...validData].sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]).slice(0, 15);
 
-        renderColumn('bull-list', bullSorted);
-        renderColumn('bear-list', bearSorted);
+        if (currentPage === 'dashboard') {
+          const bullSorted = [...validData].sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]).slice(0, 15);
+          const bearSorted = [...validData].sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]).slice(0, 15);
+
+          renderList('bull-list', bullSorted);
+          renderList('bear-list', bearSorted);
+        } else if (currentPage === 'pump') {
+          // 篩選爆噴條件：15M價格急漲 > 2% + 爆量 > 1.8倍 + OI增加 > 1.5%
+          const pumpList = validData.filter(d => d.change15m >= 1.8 && d.volRatio >= 1.5 && d.oiChange >= 1.0)
+                                    .sort((a, b) => b.change15m - a.change15m);
+          
+          if (pumpList.length === 0) {
+            document.getElementById('pump-list').innerHTML = '<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">目前無完全滿足「15M 價格+成交量+OI 三重爆發」的標的，市場冷靜中...</div>';
+          } else {
+            renderList('pump-list', pumpList);
+          }
+          document.getElementById('pump-count').innerText = `找到 ${pumpList.length} 個強勢標的`;
+        }
 
         document.getElementById('time').innerText = '最後更新：' + new Date().toLocaleTimeString();
       } catch (err) {
-        document.getElementById('bull-list').innerText = '數據載入失敗。';
-        document.getElementById('bear-list').innerText = '數據載入失敗。';
+        console.error(err);
       }
     }
 
-    // 計算 EMA 均線公式
-    function calcEMA(prices, period) {
-      if (prices.length < period) return prices[prices.length - 1];
-      const k = 2 / (period + 1);
-      let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      for (let i = period; i < prices.length; i++) {
-        ema = prices[i] * k + ema * (1 - k);
-      }
-      return ema;
-    }
-
-    function renderColumn(containerId, list) {
+    function renderList(containerId, list) {
       const container = document.getElementById(containerId);
       container.innerHTML = '';
 
@@ -211,8 +254,10 @@
         const isUp = change >= 0;
         
         let badgeHtml = '';
-        if (coin.change15m >= 2.0) badgeHtml = `<span class="badge badge-pump">⚡ 15M急漲 +${coin.change15m.toFixed(1)}%</span>`;
-        if (coin.change15m <= -2.0) badgeHtml = `<span class="badge badge-dump">🚨 15M急跌 ${coin.change15m.toFixed(1)}%</span>`;
+        if (coin.change15m >= 2.0) badgeHtml += `<span class="badge badge-pump">⚡ 15M急漲 +${coin.change15m.toFixed(1)}%</span>`;
+        if (coin.change15m <= -2.0) badgeHtml += `<span class="badge badge-dump">🚨 15M急跌 ${coin.change15m.toFixed(1)}%</span>`;
+        if (coin.oiChange >= 1.5) badgeHtml += `<span class="badge badge-oi">🔥 OI持倉 +${coin.oiChange.toFixed(1)}%</span>`;
+        if (coin.volRatio >= 2.0) badgeHtml += `<span class="badge badge-vol">💥 爆量 ${coin.volRatio.toFixed(1)}x</span>`;
 
         container.innerHTML += `
           <div class="card">
@@ -228,15 +273,8 @@
             </div>
             
             <div class="charts-wrapper" id="wrapper-${coin.fullSymbol}">
-              <div class="chart-title">📈 TradingView 1H K線 (含 EMA 10/21/50)</div>
+              <div class="chart-title">📈 TradingView 1H K線 (EMA 10/21/50)</div>
               <div class="tv-chart-container" id="tv-box-${coin.fullSymbol}"></div>
-              
-              <!-- 獨立 EMA 數據欄 -->
-              <div class="ema-panel">
-                <div><div class="ema-10">EMA 10</div><div class="ema-item-val">$${coin.ema10.toFixed(3)}</div></div>
-                <div><div class="ema-21">EMA 21</div><div class="ema-item-val">$${coin.ema21.toFixed(3)}</div></div>
-                <div><div class="ema-50">EMA 50</div><div class="ema-item-val">$${coin.ema50.toFixed(3)}</div></div>
-              </div>
 
               <div class="chart-title">📊 合約未平倉量 (OI 持倉價值)</div>
               <div class="oi-chart-container">
@@ -257,7 +295,7 @@
       } else {
         wrapper.style.display = 'block';
         
-        // 載入 TradingView 小工具並帶入 EMA 指標
+        // 載入 TradingView 並帶入客製化 EMA 顏色
         if (!loadedTVCharts[symbol]) {
           loadedTVCharts[symbol] = true;
           new TradingView.widget({
@@ -277,7 +315,16 @@
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 10 } },
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 21 } },
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 50 } }
-            ]
+            ],
+            // 指定三條 EMA 均線顏色 (EMA10 亮藍、EMA21 鮮黃、EMA50 亮紫)
+            "studies_overrides": {
+              "moving average.ma.color.0": "#38bdf8",
+              "moving average.ma.color.1": "#facc15",
+              "moving average.ma.color.2": "#c084fc",
+              "moving average.ma.linewidth.0": 2,
+              "moving average.ma.linewidth.1": 2,
+              "moving average.ma.linewidth.2": 2
+            }
           });
         }
 
