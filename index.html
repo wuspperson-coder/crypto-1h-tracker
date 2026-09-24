@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>幣安動態多空雷達看板 & 全自動模擬交易</title>
-  <!-- 引入 TradingView 工具與 Chart.js -->
+  <!-- 引入 TradingView 工具與 Chart.js (含 financial 蠟燭圖插件與 annotation 繪圖插件) -->
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 0; display: flex; min-height: 100vh; }
@@ -66,11 +69,11 @@
 
     /* 圖表容器 */
     .charts-wrapper { margin-top: 14px; display: none; border-top: 1px solid #2b313a; padding-top: 12px; }
-    .tv-chart-container { height: 380px; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
-    .oi-chart-container { height: 160px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
+    .tv-chart-container { height: 380px; border-radius: 8px; overflow: hidden; margin-bottom: 12px; background: #141821; }
+    .oi-chart-container { height: 200px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
+    .replay-chart-container { height: 280px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; margin-top: 8px; }
     .chart-title { font-size: 11px; color: #848e9c; margin-bottom: 6px; font-weight: bold; }
 
-    /* 前向模擬交易面板 (Paper Trading Panel) */
     .paper-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 15px; }
     .stat-card { background: #1e2329; border: 1px solid #2b313a; border-radius: 10px; padding: 12px; text-align: center; }
     .stat-title { font-size: 11px; color: #848e9c; margin-bottom: 4px; }
@@ -78,12 +81,6 @@
 
     .strategy-info { background: #141821; border: 1px solid #2b313a; border-radius: 8px; padding: 10px 14px; margin-bottom: 15px; font-size: 12px; color: #848e9c; line-height: 1.5; }
 
-    /* 模擬交易風控細節卡片 */
-    .paper-risk-panel { background: #141821; border-radius: 8px; padding: 10px 14px; border: 1px solid #2b313a; margin-bottom: 12px; display: flex; justify-content: space-around; font-size: 12px; text-align: center; }
-    .risk-title { color: #848e9c; font-size: 10px; margin-bottom: 2px; }
-    .risk-val { font-weight: bold; font-size: 13px; }
-
-    /* 手機端 RWD 適應 */
     @media (max-width: 900px) {
       body { flex-direction: column; }
       .sidebar { width: 100% !important; padding: 12px 15px !important; border-right: none; border-bottom: 1px solid #2b313a; }
@@ -125,7 +122,6 @@
         <div class="update-time" id="time">數據載入中...</div>
       </div>
       
-      <!-- 時間週期切換 -->
       <div class="timeframe-group" id="tf-group">
         <button class="tf-btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
         <button class="tf-btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
@@ -165,11 +161,10 @@
     <!-- 頁面 3：全自動策略模擬交易 (Paper Trading) -->
     <div class="page-section" id="page-paper">
       <div class="column-title title-paper">
-        <span>🤖 全自動策略模擬交易 & TradingView 實時複盤</span>
+        <span>🤖 全自動策略模擬交易 & 多頭倉位繪圖複盤</span>
         <button onclick="clearPaperTrades()" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;">清空紀錄</button>
       </div>
 
-      <!-- 策略條件說明卡片 -->
       <div class="strategy-info">
         <b>🎯 系統全自動觸發條件：</b><br>
         1. <b>EMA 多頭發散</b>：$EMA10 > EMA21 > EMA50$ 且 價格 $> EMA10$<br>
@@ -177,7 +172,6 @@
         3. <b>ATR 風控止盈止損</b>：按近 14 根 K 線 ATR 計算（止損 $= 1.5\times ATR$，止盈 $= 3.0\times ATR$）
       </div>
 
-      <!-- 統計數據儀表板 -->
       <div class="paper-stats-grid">
         <div class="stat-card">
           <div class="stat-title">自動觸發單數</div>
@@ -197,7 +191,6 @@
         </div>
       </div>
 
-      <!-- 自動交易歷史紀錄 -->
       <div id="paper-trades-list">系統即時監控市場中，符合策略條件時將自動在此建立模擬單...</div>
     </div>
 
@@ -206,8 +199,9 @@
   <script>
     let currentTimeframe = '1h';
     let currentPage = 'dashboard';
-    let loadedTVCharts = {};
-    let oiChartInstances = {};
+    let loadedTVWidgets = {};
+    let oiCandleChartInstances = {};
+    let replayChartInstances = {};
 
     let paperTrades = JSON.parse(localStorage.getItem('autoPaperTrades')) || [];
 
@@ -384,7 +378,7 @@
               <div class="chart-title">📈 TradingView 1H K線 (EMA 10/21/50)</div>
               <div class="tv-chart-container" id="tv-box-${containerId}-${coin.fullSymbol}"></div>
 
-              <div class="chart-title">📊 合約未平倉量 (OI 持倉價值)</div>
+              <div class="chart-title">📊 合約未平倉量 K 線圖 (OI Candlesticks)</div>
               <div class="oi-chart-container">
                 <canvas id="oi-chart-${containerId}-${coin.fullSymbol}"></canvas>
               </div>
@@ -403,9 +397,13 @@
       } else {
         wrapper.style.display = 'block';
         const key = `${containerId}-${symbol}`;
-        
-        if (!loadedTVCharts[key]) {
-          loadedTVCharts[key] = true;
+        const tvContainerId = `tv-box-${key}`;
+
+        // 防黑屏：展開時先完全重置 DOM 容器
+        const container = document.getElementById(tvContainerId);
+        container.innerHTML = '';
+
+        setTimeout(() => {
           new TradingView.widget({
             "autosize": true,
             "symbol": `BINANCE:${symbol}`,
@@ -418,12 +416,13 @@
             "hide_top_toolbar": false,
             "hide_legend": false,
             "save_image": false,
-            "container_id": `tv-box-${key}`,
+            "container_id": tvContainerId,
             "studies": [
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 10 } },
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 21 } },
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 50 } }
             ],
+            // 修正 EMA 顏色指定
             "studies_overrides": {
               "moving average.ma.color.0": "#38bdf8",
               "moving average.ma.color.1": "#facc15",
@@ -433,43 +432,55 @@
               "moving average.ma.linewidth.2": 2
             }
           });
-        }
+        }, 50);
 
-        if (!oiChartInstances[key]) {
-          fetchOIHistory(symbol, key);
-        } else {
-          setTimeout(() => oiChartInstances[key].resize(), 50);
-        }
+        fetchOICandles(symbol, key);
       }
     }
 
-    async function fetchOIHistory(symbol, key) {
+    // 抓取 OI 並轉化為 K 線數據 (OI Candlestick Chart)
+    async function fetchOICandles(symbol, key) {
       try {
-        const res = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=30`);
+        const res = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=15m&limit=40`);
         const data = await res.json();
         
-        if (!Array.isArray(data) || data.length === 0) {
-          document.getElementById(`oi-chart-${key}`).outerHTML = '<div style="font-size:12px;color:#848e9c;text-align:center;padding-top:40px;">該幣種無合約或 OI 數據</div>';
+        if (!Array.isArray(data) || data.length < 2) {
+          document.getElementById(`oi-chart-${key}`).outerHTML = '<div style="font-size:12px;color:#848e9c;text-align:center;padding-top:60px;">該幣種無合約數據</div>';
           return;
         }
 
-        const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
-        const oiValues = data.map(d => parseFloat(d.sumOpenInterestValue));
+        let candleData = [];
+        for(let i = 1; i < data.length; i++) {
+          const prevOI = parseFloat(data[i-1].sumOpenInterestValue);
+          const currOI = parseFloat(data[i].sumOpenInterestValue);
+          const open = prevOI;
+          const close = currOI;
+          const high = Math.max(open, close) * 1.0005;
+          const low = Math.min(open, close) * 0.9995;
+
+          candleData.push({
+            x: new Date(data[i].timestamp),
+            o: open,
+            h: high,
+            l: low,
+            c: close
+          });
+        }
 
         const ctx = document.getElementById(`oi-chart-${key}`).getContext('2d');
-        oiChartInstances[key] = new Chart(ctx, {
-          type: 'line',
+        if (oiCandleChartInstances[key]) oiCandleChartInstances[key].destroy();
+
+        oiCandleChartInstances[key] = new Chart(ctx, {
+          type: 'candlestick',
           data: {
-            labels: labels,
             datasets: [{
-              label: 'OI 持倉價值 (USD)',
-              data: oiValues,
-              borderColor: '#38bdf8',
-              backgroundColor: 'rgba(56, 189, 248, 0.15)',
-              fill: true,
-              tension: 0.2,
-              borderWidth: 2,
-              pointRadius: 0
+              label: 'OI 數據 (USD)',
+              data: candleData,
+              color: {
+                up: '#22c55e',
+                down: '#ef4444',
+                unchanged: '#848e9c'
+              }
             }]
           },
           options: {
@@ -477,7 +488,7 @@
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              x: { ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
+              x: { type: 'time', time: { unit: 'hour' }, ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
               y: { 
                 ticks: { 
                   color: '#848e9c', 
@@ -494,11 +505,11 @@
           }
         });
       } catch (err) {
-        console.error('OI 抓取失敗', err);
+        console.error('OI K線載入失敗', err);
       }
     }
 
-    /* --- 🤖 全自動策略模擬交易 (Auto Paper Trading Engine) --- */
+    /* --- 🤖 全自動策略模擬交易 --- */
 
     function autoExecuteStrategy(marketData) {
       let updated = false;
@@ -588,7 +599,7 @@
 
         container.innerHTML += `
           <div class="card">
-            <div class="card-header" onclick="togglePaperCharts('${trade.id}', '${trade.fullSymbol}')">
+            <div class="card-header" onclick="togglePaperReplay('${trade.id}', '${trade.fullSymbol}', ${trade.entryPrice}, ${trade.tpPrice}, ${trade.slPrice})">
               <div>
                 <div class="symbol">${trade.symbol} <span style="font-size:12px;color:#848e9c;">[自動多單]</span></div>
                 <div class="price">進場: $${trade.entryPrice} | 🎯止盈: $${trade.tpPrice.toFixed(4)} | 🚨止損: $${trade.slPrice.toFixed(4)}</div>
@@ -599,21 +610,11 @@
               </div>
             </div>
 
-            <!-- 展開 TradingView K 線與風控參數細節卡片 -->
+            <!-- 繪製多頭倉位圖片與區塊 -->
             <div class="charts-wrapper" id="paper-wrapper-${trade.id}">
-              <!-- 風控數據面板 -->
-              <div class="paper-risk-panel">
-                <div><div class="risk-title">🟡 自動進場價</div><div class="risk-val" style="color:#facc15;">$${trade.entryPrice}</div></div>
-                <div><div class="risk-title">🎯 ATR 止盈價 (TP)</div><div class="risk-val" style="color:#22c55e;">$${trade.tpPrice.toFixed(4)}</div></div>
-                <div><div class="risk-title">🚨 ATR 止損價 (SL)</div><div class="risk-val" style="color:#ef4444;">$${trade.slPrice.toFixed(4)}</div></div>
-              </div>
-
-              <div class="chart-title">📈 TradingView 1H K線 (包含 EMA 10/21/50)</div>
-              <div class="tv-chart-container" id="tv-box-paper-${trade.id}"></div>
-
-              <div class="chart-title">📊 合約未平倉量 (OI 持倉價值)</div>
-              <div class="oi-chart-container">
-                <canvas id="oi-chart-paper-${trade.id}"></canvas>
+              <div class="chart-title">📍 模擬多頭倉位與 K 線複盤 (綠色=止盈區塊, 紅色=止損區塊)</div>
+              <div class="replay-chart-container">
+                <canvas id="paper-chart-${trade.id}"></canvas>
               </div>
             </div>
           </div>
@@ -621,7 +622,8 @@
       });
     }
 
-    function togglePaperCharts(tradeId, symbol) {
+    // 繪製 TradingView 風格「多頭倉位 (Long Position Box)」圖像
+    async function togglePaperReplay(tradeId, symbol, entryP, tpP, slP) {
       const wrapper = document.getElementById(`paper-wrapper-${tradeId}`);
       const isVisible = wrapper.style.display === 'block';
 
@@ -629,44 +631,88 @@
         wrapper.style.display = 'none';
       } else {
         wrapper.style.display = 'block';
-        const key = `paper-${tradeId}`;
 
-        // 載入 TradingView 小工具
-        if (!loadedTVCharts[key]) {
-          loadedTVCharts[key] = true;
-          new TradingView.widget({
-            "autosize": true,
-            "symbol": `BINANCE:${symbol}`,
-            "interval": "60",
-            "timezone": "Asia/Taipei",
-            "theme": "dark",
-            "style": "1",
-            "locale": "zh_TW",
-            "enable_publishing": false,
-            "hide_top_toolbar": false,
-            "hide_legend": false,
-            "save_image": false,
-            "container_id": `tv-box-paper-${tradeId}`,
-            "studies": [
-              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 10 } },
-              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 21 } },
-              { "id": "MASimple@tv-basicstudies", "inputs": { "length": 50 } }
-            ],
-            "studies_overrides": {
-              "moving average.ma.color.0": "#38bdf8",
-              "moving average.ma.color.1": "#facc15",
-              "moving average.ma.color.2": "#c084fc",
-              "moving average.ma.linewidth.0": 2,
-              "moving average.ma.linewidth.1": 2,
-              "moving average.ma.linewidth.2": 2
-            }
-          });
-        }
+        if (!replayChartInstances[tradeId]) {
+          try {
+            const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=40`);
+            const klines = await res.json();
+            const labels = klines.map(k => new Date(k[0]));
+            const prices = klines.map(k => parseFloat(k[4]));
 
-        if (!oiChartInstances[key]) {
-          fetchOIHistory(symbol, `paper-${tradeId}`);
-        } else {
-          setTimeout(() => oiChartInstances[key].resize(), 50);
+            const ctx = document.getElementById(`paper-chart-${tradeId}`).getContext('2d');
+            replayChartInstances[tradeId] = new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: labels,
+                datasets: [{
+                  label: '價格',
+                  data: prices,
+                  borderColor: '#f0b90b',
+                  borderWidth: 2,
+                  pointRadius: 0
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: false },
+                  annotation: {
+                    annotations: {
+                      // 綠色止盈半透明區塊 (Take Profit Box)
+                      tpBox: {
+                        type: 'box',
+                        yMin: entryP,
+                        yMax: tpP,
+                        backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                        borderColor: '#22c55e',
+                        borderWidth: 1
+                      },
+                      // 紅色止損半透明區塊 (Stop Loss Box)
+                      slBox: {
+                        type: 'box',
+                        yMin: slP,
+                        yMax: entryP,
+                        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                        borderColor: '#ef4444',
+                        borderWidth: 1
+                      },
+                      entryLine: {
+                        type: 'line',
+                        yMin: entryP,
+                        yMax: entryP,
+                        borderColor: '#facc15',
+                        borderWidth: 2,
+                        label: { display: true, content: `🟡 多單進場價: $${entryP}`, position: 'end', backgroundColor: '#facc15', color: '#000', font: { size: 10 } }
+                      },
+                      tpLine: {
+                        type: 'line',
+                        yMin: tpP,
+                        yMax: tpP,
+                        borderColor: '#22c55e',
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        label: { display: true, content: `🎯 ATR 止盈線: $${tpP.toFixed(4)}`, position: 'start', backgroundColor: '#22c55e', color: '#000', font: { size: 10 } }
+                      },
+                      slLine: {
+                        type: 'line',
+                        yMin: slP,
+                        yMax: slP,
+                        borderColor: '#ef4444',
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        label: { display: true, content: `🚨 ATR 止損線: $${slP.toFixed(4)}`, position: 'start', backgroundColor: '#ef4444', color: '#fff', font: { size: 10 } }
+                      }
+                    }
+                  }
+                },
+                scales: {
+                  x: { type: 'time', time: { unit: 'hour' }, ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
+                  y: { ticks: { color: '#848e9c', font: { size: 9 } }, grid: { color: '#2b313a' } }
+                }
+              }
+            });
+          } catch(e) { console.error('複盤圖表繪製失敗', e); }
         }
       }
     }
