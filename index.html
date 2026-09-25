@@ -8,8 +8,6 @@
   <!-- 引入 TradingView 工具與 Chart.js -->
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 0; display: flex; min-height: 100vh; }
@@ -31,6 +29,16 @@
 
     /* 右側主內容區 */
     .main-content { flex: 1; padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; }
+    
+    /* 🚦 最上方 BTC 紅綠燈橫條面板 */
+    .btc-signal-bar { background: #141821; border: 1px solid #2b313a; border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .btc-title { font-size: 15px; font-weight: bold; color: #f0b90b; display: flex; align-items: center; gap: 8px; }
+    .btc-lights-group { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btc-light-item { background: #1e2329; border: 1px solid #2b313a; border-radius: 8px; padding: 6px 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: bold; }
+    .light-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px rgba(0,0,0,0.5); }
+    .dot-green { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+    .dot-red { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
     h1 { font-size: 22px; color: #f0b90b; margin: 0; }
     .update-time { color: #848e9c; font-size: 12px; }
@@ -69,10 +77,10 @@
     /* 圖表容器 */
     .charts-wrapper { margin-top: 14px; display: none; border-top: 1px solid #2b313a; padding-top: 12px; }
     .tv-chart-container { height: 380px; border-radius: 8px; overflow: hidden; margin-bottom: 12px; background: #141821; }
-    .oi-chart-container { height: 200px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
+    .oi-chart-container { height: 180px; background: #141821; border-radius: 8px; padding: 8px; position: relative; border: 1px solid #2b313a; }
     .chart-title { font-size: 11px; color: #848e9c; margin-bottom: 6px; font-weight: bold; }
 
-    /* 多頭倉位視覺風控面板 */
+    /* 多頭倉位風控面板 */
     .position-box-panel { background: #141821; border: 1px solid #2b313a; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; }
     .position-item { padding: 6px; border-radius: 6px; }
     .pos-entry { background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); }
@@ -123,6 +131,37 @@
 
   <!-- 右側主內容區 -->
   <div class="main-content">
+    
+    <!-- 🚦 最頂部：BTC 大盤 EMA 動能紅綠燈 (所有介面均顯示) -->
+    <div class="btc-signal-bar">
+      <div class="btc-title">
+        <span>🚦 BTC 大盤動能紅綠燈</span>
+        <span id="btc-price" style="font-size:13px;color:#848e9c;">$00,000</span>
+      </div>
+      <div class="btc-lights-group">
+        <div class="btc-light-item">
+          <span>15MIN</span>
+          <span class="light-dot dot-red" id="btc-light-15m"></span>
+          <span id="btc-status-15m">檢測中</span>
+        </div>
+        <div class="btc-light-item">
+          <span>1HR</span>
+          <span class="light-dot dot-red" id="btc-light-1h"></span>
+          <span id="btc-status-1h">檢測中</span>
+        </div>
+        <div class="btc-light-item">
+          <span>4HR</span>
+          <span class="light-dot dot-red" id="btc-light-4h"></span>
+          <span id="btc-status-4h">檢測中</span>
+        </div>
+        <div class="btc-light-item">
+          <span>1D</span>
+          <span class="light-dot dot-red" id="btc-light-1d"></span>
+          <span id="btc-status-1d">檢測中</span>
+        </div>
+      </div>
+    </div>
+
     <div class="header">
       <div>
         <h1 id="page-title">💛 幣安加密貨幣多空強勢榜</h1>
@@ -156,7 +195,7 @@
       </div>
     </div>
 
-    <!-- 頁面 2：可能會爆噴的幣 (已調整為 1 小時過濾) -->
+    <!-- 頁面 2：可能會爆噴的幣 -->
     <div class="page-section" id="page-pump">
       <div class="column-title title-pump">
         <span>🔥 1HR 價量 + OI 三重激增熱門幣 (突破動能過濾)</span>
@@ -165,7 +204,7 @@
       <div id="pump-list">掃描市場中，請稍候...</div>
     </div>
 
-    <!-- 頁面 3：全自動策略模擬交易 (Paper Trading) -->
+    <!-- 頁面 3：全自動策略模擬交易 -->
     <div class="page-section" id="page-paper">
       <div class="column-title title-paper">
         <span>🤖 全自動策略模擬交易 & TradingView 實時複盤</span>
@@ -206,7 +245,7 @@
   <script>
     let currentTimeframe = '1h';
     let currentPage = 'dashboard';
-    let oiCandleChartInstances = {};
+    let oiChartInstances = {};
 
     let paperTrades = JSON.parse(localStorage.getItem('autoPaperTrades')) || [];
 
@@ -270,7 +309,53 @@
       return recentTRs.reduce((a, b) => a + b, 0) / recentTRs.length;
     }
 
+    /* 🚦 BTC 紅綠燈動能檢測邏輯 */
+    async function fetchBTCSignals() {
+      try {
+        const intervals = [
+          { tf: '15m', lightId: 'btc-light-15m', textId: 'btc-status-15m' },
+          { tf: '1h', lightId: 'btc-light-1h', textId: 'btc-status-1h' },
+          { tf: '4h', lightId: 'btc-light-4h', textId: 'btc-status-4h' },
+          { tf: '1d', lightId: 'btc-light-1d', textId: 'btc-status-1d' }
+        ];
+
+        for (let item of intervals) {
+          const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${item.tf}&limit=60`);
+          const klines = await res.json();
+          const closes = klines.map(k => parseFloat(k[4]));
+          const price = closes[closes.length - 1];
+
+          if (item.tf === '1h') {
+            document.getElementById('btc-price').innerText = `$${price.toLocaleString()}`;
+          }
+
+          const ema10 = calcEMA(closes, 10);
+          const ema21 = calcEMA(closes, 21);
+          const ema50 = calcEMA(closes, 50);
+
+          // 判斷多頭排列 (價格 > EMA10 > EMA21 > EMA50) 亮綠燈，否則亮紅燈
+          const isBull = price > ema10 && ema10 > ema21 && ema21 > ema50;
+          const lightEl = document.getElementById(item.lightId);
+          const textEl = document.getElementById(item.textId);
+
+          if (isBull) {
+            lightEl.className = 'light-dot dot-green';
+            textEl.innerText = '多頭看漲';
+            textEl.style.color = '#22c55e';
+          } else {
+            lightEl.className = 'light-dot dot-red';
+            textEl.innerText = '空頭修正';
+            textEl.style.color = '#ef4444';
+          }
+        }
+      } catch (err) {
+        console.error('BTC 紅綠燈數據抓取失敗', err);
+      }
+    }
+
     async function fetchData() {
+      fetchBTCSignals(); // 每次刷新同步更新 BTC 紅綠燈
+
       try {
         const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
         const data = await res.json();
@@ -280,7 +365,6 @@
 
         const processed = await Promise.all(usdtPairs.map(async (coin) => {
           try {
-            // 抓取 1H K線
             const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=60`);
             const klines = await kRes.json();
 
@@ -332,7 +416,6 @@
           renderList('bull-list', bullSorted);
           renderList('bear-list', bearSorted);
         } else if (currentPage === 'pump') {
-          // 升級：改為 1H 價量 + OI 三重急漲條件
           const pumpList = validData.filter(d => d.change1h >= 1.8 && d.volRatio >= 1.5 && d.oiChange >= 1.0)
                                     .sort((a, b) => b.change1h - a.change1h);
           
@@ -383,7 +466,7 @@
               <div class="chart-title">📈 TradingView 1H K線 (EMA 10/21/50)</div>
               <div class="tv-chart-container" id="tv-box-${containerId}-${coin.fullSymbol}"></div>
 
-              <div class="chart-title">📊 合約未平倉量 K 線圖 (OI Candlesticks)</div>
+              <div class="chart-title">📊 1H OI 未平倉淨增減柱狀圖 (綠=建倉/紅=平倉)</div>
               <div class="oi-chart-container">
                 <canvas id="oi-chart-${containerId}-${coin.fullSymbol}"></canvas>
               </div>
@@ -404,7 +487,6 @@
         const key = `${containerId}-${symbol}`;
         const tvContainerId = `tv-box-${key}`;
 
-        // 防黑屏：展開時先完全重置 DOM 容器
         const container = document.getElementById(tvContainerId);
         container.innerHTML = '';
 
@@ -427,7 +509,6 @@
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 21 } },
               { "id": "MASimple@tv-basicstudies", "inputs": { "length": 50 } }
             ],
-            // 指定三條 EMA 顏色
             "studies_overrides": {
               "moving average.ma.color.0": "#38bdf8",
               "moving average.ma.color.1": "#facc15",
@@ -439,11 +520,11 @@
           });
         }, 50);
 
-        fetchOICandles(symbol, key);
+        fetchOIHistogram(symbol, key);
       }
     }
 
-    async function fetchOICandles(symbol, key) {
+    async function fetchOIHistogram(symbol, key) {
       try {
         const res = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=30`);
         const data = await res.json();
@@ -453,38 +534,33 @@
           return;
         }
 
-        let candleData = [];
-        for(let i = 1; i < data.length; i++) {
-          const prevOI = parseFloat(data[i-1].sumOpenInterestValue);
-          const currOI = parseFloat(data[i].sumOpenInterestValue);
-          const open = prevOI;
-          const close = currOI;
-          const high = Math.max(open, close) * 1.0005;
-          const low = Math.min(open, close) * 0.9995;
+        let labels = [];
+        let deltaValues = [];
+        let backgroundColors = [];
 
-          candleData.push({
-            x: new Date(data[i].timestamp),
-            o: open,
-            h: high,
-            l: low,
-            c: close
-          });
+        for (let i = 1; i < data.length; i++) {
+          const timeStr = new Date(data[i].timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          const currentVal = parseFloat(data[i].sumOpenInterestValue);
+          const prevVal = parseFloat(data[i-1].sumOpenInterestValue);
+          const diff = currentVal - prevVal;
+
+          labels.push(timeStr);
+          deltaValues.push(diff);
+          backgroundColors.push(diff >= 0 ? 'rgba(34, 197, 94, 0.85)' : 'rgba(239, 68, 68, 0.85)');
         }
 
         const ctx = document.getElementById(`oi-chart-${key}`).getContext('2d');
-        if (oiCandleChartInstances[key]) oiCandleChartInstances[key].destroy();
+        if (oiChartInstances[key]) oiChartInstances[key].destroy();
 
-        oiCandleChartInstances[key] = new Chart(ctx, {
-          type: 'candlestick',
+        oiChartInstances[key] = new Chart(ctx, {
+          type: 'bar',
           data: {
+            labels: labels,
             datasets: [{
-              label: 'OI 數據 (USD)',
-              data: candleData,
-              color: {
-                up: '#22c55e',
-                down: '#ef4444',
-                unchanged: '#848e9c'
-              }
+              label: '1H OI 淨變化量 (USD)',
+              data: deltaValues,
+              backgroundColor: backgroundColors,
+              borderRadius: 3
             }]
           },
           options: {
@@ -492,15 +568,15 @@
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              x: { type: 'time', time: { unit: 'hour' }, ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
+              x: { ticks: { color: '#848e9c', font: { size: 9 } }, grid: { display: false } },
               y: { 
                 ticks: { 
                   color: '#848e9c', 
                   font: { size: 9 },
                   callback: function(val) {
-                    if (val >= 1e6) return '$' + (val / 1e6).toFixed(1) + 'M';
-                    if (val >= 1e3) return '$' + (val / 1e3).toFixed(0) + 'K';
-                    return '$' + val;
+                    if (Math.abs(val) >= 1e6) return (val / 1e6).toFixed(1) + 'M';
+                    if (Math.abs(val) >= 1e3) return (val / 1e3).toFixed(0) + 'K';
+                    return val;
                   }
                 },
                 grid: { color: '#2b313a' }
@@ -509,7 +585,7 @@
           }
         });
       } catch (err) {
-        console.error('OI K線載入失敗', err);
+        console.error('OI 柱狀圖載入失敗', err);
       }
     }
 
@@ -615,7 +691,6 @@
             </div>
 
             <div class="charts-wrapper" id="paper-wrapper-${trade.id}">
-              <!-- 多頭倉位視覺風控面板 -->
               <div class="position-box-panel">
                 <div class="position-item pos-entry">
                   <div class="pos-label">🟡 多單進場價</div>
@@ -634,7 +709,7 @@
               <div class="chart-title">📈 TradingView 1H K線 (EMA 10/21/50)</div>
               <div class="tv-chart-container" id="tv-box-paper-${trade.id}"></div>
 
-              <div class="chart-title">📊 合約未平倉量 K 線圖 (OI Candlesticks)</div>
+              <div class="chart-title">📊 1H OI 未平倉淨增減柱狀圖 (綠=建倉/紅=平倉)</div>
               <div class="oi-chart-container">
                 <canvas id="oi-chart-paper-${trade.id}"></canvas>
               </div>
@@ -655,7 +730,6 @@
         const key = `paper-${tradeId}`;
         const tvContainerId = `tv-box-paper-${tradeId}`;
 
-        // 防黑屏：清空容器
         const container = document.getElementById(tvContainerId);
         container.innerHTML = '';
 
@@ -689,7 +763,7 @@
           });
         }, 50);
 
-        fetchOICandles(symbol, `paper-${tradeId}`);
+        fetchOIHistogram(symbol, `paper-${tradeId}`);
       }
     }
 
