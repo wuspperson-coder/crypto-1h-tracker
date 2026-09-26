@@ -4,13 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安加密貨幣多空強勢榜 & 雙週期全自動策略模擬引擎</title>
+  <title>幣安精準動能量化模擬交易引擎 (EMA 20/50/100/200 + ATR 單向移動止損)</title>
   
-  <!-- 1. 引入 TradingView 工具與 Chart.js -->
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  
-  <!-- 2. 引入 Google Firebase 實時資料庫 SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 
@@ -18,19 +15,14 @@
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0e14; color: #eaecef; margin: 0; padding: 0; display: flex; min-height: 100vh; }
     
-    /* 左側 Sidebar */
-    .sidebar { width: 220px; background: #141821; border-right: 1px solid #2b313a; padding: 20px 15px; flex-shrink: 0; display: flex; flex-direction: column; transition: width 0.3s, padding 0.3s; }
-    .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .sidebar-title { color: #f0b90b; font-size: 16px; font-weight: bold; white-space: nowrap; overflow: hidden; }
-
+    .sidebar { width: 220px; background: #141821; border-right: 1px solid #2b313a; padding: 20px 15px; flex-shrink: 0; display: flex; flex-direction: column; }
+    .sidebar-title { color: #f0b90b; font-size: 16px; font-weight: bold; margin-bottom: 20px; }
     .sidebar-menu { list-style: none; padding: 0; margin: 0; }
-    .sidebar-item { padding: 10px 12px; border-radius: 6px; color: #848e9c; font-size: 14px; font-weight: 500; margin-bottom: 6px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .sidebar-item { padding: 10px 12px; border-radius: 6px; color: #848e9c; font-size: 14px; font-weight: 500; margin-bottom: 6px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
     .sidebar-item.active, .sidebar-item:hover { background: #1e2329; color: #f0b90b; }
 
-    /* 右側主內容區 */
     .main-content { flex: 1; padding: 20px; max-width: 1400px; margin: 0 auto; width: 100%; }
     
-    /* 🚦 BTC 大盤紅綠燈 */
     .btc-signal-bar { background: #141821; border: 1px solid #2b313a; border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
     .btc-title { font-size: 15px; font-weight: bold; color: #f0b90b; }
     .btc-lights-group { display: flex; gap: 12px; }
@@ -56,11 +48,6 @@
     .page-section { display: none; }
     .page-section.active { display: block; }
 
-    .strategy-toggle-bar { display: flex; gap: 10px; margin-bottom: 15px; }
-    .strat-btn { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #2b313a; background: #141821; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; }
-    .strat-btn.active-a { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
-    .strat-btn.active-b { background: rgba(240, 185, 11, 0.2); color: #f0b90b; border-color: #f0b90b; }
-
     .data-tools-bar { display: flex; gap: 10px; margin-bottom: 15px; background: #141821; padding: 10px; border-radius: 8px; border: 1px solid #2b313a; align-items: center; flex-wrap: wrap; }
     .tool-btn { background: #1e2329; border: 1px solid #2b313a; color: #eaecef; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; }
     .tool-btn:hover { background: #2b313a; color: #f0b90b; }
@@ -71,6 +58,7 @@
     .badges { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
     .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
     .badge-pump { background: rgba(14, 203, 129, 0.2); color: #0ecb81; border: 1px solid #0ecb81; }
+    .badge-pending { background: rgba(250, 204, 21, 0.2); color: #facc15; border: 1px solid #facc15; }
 
     .change { font-weight: bold; padding: 8px 12px; border-radius: 6px; font-size: 15px; }
     .up { background: rgba(14, 203, 129, 0.15); color: #0ecb81; }
@@ -96,17 +84,14 @@
 </head>
 <body>
 
-  <!-- 左側 Sidebar 選單 -->
   <div class="sidebar">
-    <div class="sidebar-header">
-      <div class="sidebar-title">⚡ 動能量化雷達</div>
-    </div>
+    <div class="sidebar-header"><div class="sidebar-title">⚡ 動能量化雷達</div></div>
     <ul class="sidebar-menu">
       <li class="sidebar-item active" id="menu-dashboard" onclick="switchPage('dashboard')">
         <span>📊</span><span>行情多空看板</span>
       </li>
       <li class="sidebar-item" id="menu-pump" onclick="switchPage('pump')">
-        <span>🚀</span><span>可能會爆噴的幣 (1H)</span>
+        <span>🚀</span><span>爆量動能篩選器</span>
       </li>
       <li class="sidebar-item" id="menu-paper" onclick="switchPage('paper')">
         <span>🤖</span><span>全自動策略模擬引擎</span>
@@ -116,9 +101,8 @@
 
   <div class="main-content">
     
-    <!-- 🚦 BTC 大盤紅綠燈 -->
     <div class="btc-signal-bar">
-      <div class="btc-title">🚦 BTC 大盤趨勢紅綠燈 <span id="btc-price" style="font-size:12px;color:#848e9c;">$00,000</span></div>
+      <div class="btc-title">🚦 BTC 大盤趨勢紅綠燈 (EMA 20/50/100/200) <span id="btc-price" style="font-size:12px;color:#848e9c;">$00,000</span></div>
       <div class="btc-lights-group">
         <div class="btc-light-item"><span>15M</span><span class="light-dot dot-red" id="btc-light-15m"></span></div>
         <div class="btc-light-item"><span>1H</span><span class="light-dot dot-red" id="btc-light-1h"></span></div>
@@ -133,10 +117,7 @@
         <div style="font-size:12px;color:#848e9c;" id="time">更新中...</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
-        <div class="sync-status">
-          <span class="light-dot dot-green"></span>
-          <span>Firebase 雲端實時同步中</span>
-        </div>
+        <div class="sync-status"><span class="light-dot dot-green"></span><span>Firebase 雲端實時同步中</span></div>
         <div class="timeframe-group" id="tf-group">
           <button class="tf-btn active" id="btn-1h" onclick="changeTimeframe('1h')">1HR</button>
           <button class="tf-btn" id="btn-4h" onclick="changeTimeframe('4h')">4HR</button>
@@ -145,7 +126,6 @@
       </div>
     </div>
 
-    <!-- 頁面 1：行情多空看板 -->
     <div class="page-section active" id="page-dashboard">
       <div class="board-toggle-group">
         <button class="board-toggle-btn active-bull" id="btn-show-bull" onclick="switchBoardMode('bull')">🚀 多頭漲幅榜 (Bullish Top 15)</button>
@@ -154,18 +134,11 @@
       <div id="dashboard-single-list">載入中...</div>
     </div>
 
-    <!-- 頁面 2：可能會爆噴的幣 -->
     <div class="page-section" id="page-pump">
       <div id="pump-list">掃描市場中，請稍候...</div>
     </div>
 
-    <!-- 頁面 3：全自動策略模擬引擎 -->
     <div class="page-section" id="page-paper">
-      <div class="strategy-toggle-bar">
-        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行 / 4H趨勢)</button>
-        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行 / 1D趨勢)</button>
-      </div>
-
       <div class="data-tools-bar">
         <span style="font-size:12px;font-weight:bold;color:#f0b90b;">💾 雲端備份與匯出：</span>
         <button class="tool-btn" onclick="exportTradesCSV()">📊 下載 Excel 複盤分析檔 (CSV)</button>
@@ -173,13 +146,13 @@
       </div>
 
       <div class="paper-stats-grid">
-        <div class="stat-card"><div class="stat-title">已開單總數</div><div class="stat-value" id="stat-total">0</div></div>
+        <div class="stat-card"><div class="stat-title">已成交單數</div><div class="stat-value" id="stat-total">0</div></div>
         <div class="stat-card"><div class="stat-title">策略勝率</div><div class="stat-value" id="stat-winrate" style="color:#22c55e;">0%</div></div>
         <div class="stat-card"><div class="stat-title">平均風報比 (R:R)</div><div class="stat-value" style="color:#f0b90b;">1 : 2.0+</div></div>
-        <div class="stat-card"><div class="stat-title">模擬累積收益</div><div class="stat-value" id="stat-pnl" style="color:#38bdf8;">+0.0%</div></div>
+        <div class="stat-card"><div class="stat-title">累積收益 (R)</div><div class="stat-value" id="stat-pnl" style="color:#38bdf8;">+0.0 R</div></div>
       </div>
 
-      <div id="paper-trades-list">系統即時監控市場中，符合策略條件時將自動在此建立模擬單...</div>
+      <div id="paper-trades-list">系統即時監控市場中...</div>
     </div>
 
   </div>
@@ -203,7 +176,6 @@
     let currentTimeframe = '1h';
     let currentPage = 'dashboard';
     let boardMode = 'bull';
-    let activeEngine = 'A';
     let paperTrades = [];
 
     let cachedBullList = [];
@@ -229,13 +201,13 @@
       } else if (page === 'pump') {
         document.getElementById('menu-pump').classList.add('active');
         document.getElementById('page-pump').classList.add('active');
-        document.getElementById('page-title').innerText = '🚀 可能會爆噴的幣 (1HR 三重確認)';
+        document.getElementById('page-title').innerText = '🚀 爆量動能篩選器 (1H/4H)';
         document.getElementById('tf-group').style.display = 'none';
         fetchData();
       } else if (page === 'paper') {
         document.getElementById('menu-paper').classList.add('active');
         document.getElementById('page-paper').classList.add('active');
-        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎';
+        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎 (EMA 20/50/100/200)';
         document.getElementById('tf-group').style.display = 'none';
         renderPaperTrades();
       }
@@ -255,13 +227,6 @@
       renderList('dashboard-single-list', mode === 'bull' ? cachedBullList : cachedBearList);
     }
 
-    function switchStrategyEngine(engine) {
-      activeEngine = engine;
-      document.getElementById('btn-strat-a').className = engine === 'A' ? 'strat-btn active-a' : 'strat-btn';
-      document.getElementById('btn-strat-b').className = engine === 'B' ? 'strat-btn active-b' : 'strat-btn';
-      renderPaperTrades();
-    }
-
     function calcEMA(prices, period) {
       if (prices.length < period) return prices[prices.length - 1];
       const k = 2 / (period + 1);
@@ -270,23 +235,39 @@
       return ema;
     }
 
+    function calcATR(klines, period = 14) {
+      let trs = [];
+      for (let i = 1; i < klines.length; i++) {
+        const h = parseFloat(klines[i][2]), l = parseFloat(klines[i][3]), pc = parseFloat(klines[i-1][4]);
+        trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+      }
+      return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+    }
+
+    /* 🚦 更正一：BTC 大盤紅綠燈採用 EMA 20/50/100/200 排列 */
     async function fetchBTCSignals() {
       try {
         const tfs = [{tf:'15m',id:'btc-light-15m'}, {tf:'1h',id:'btc-light-1h'}, {tf:'4h',id:'btc-light-4h'}, {tf:'1d',id:'btc-light-1d'}];
         for (let item of tfs) {
-          const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${item.tf}&limit=60`);
+          const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${item.tf}&limit=210`);
           const klines = await res.json();
           const closes = klines.map(k => parseFloat(k[4]));
           const price = closes[closes.length - 1];
           if (item.tf === '1h') document.getElementById('btc-price').innerText = `$${price.toLocaleString()}`;
 
-          const isBull = price > calcEMA(closes, 10) && calcEMA(closes, 10) > calcEMA(closes, 21) && calcEMA(closes, 21) > calcEMA(closes, 50);
+          const ema20 = calcEMA(closes, 20);
+          const ema50 = calcEMA(closes, 50);
+          const ema100 = calcEMA(closes, 100);
+          const ema200 = calcEMA(closes, 200);
+
+          const isBull = price > ema20 && ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
           document.getElementById(item.id).className = isBull ? 'light-dot dot-green' : 'light-dot dot-red';
         }
       } catch(e){}
     }
 
-    async function fetchData() {
+    /* 🤖 更正二/三/四：小區塊訊號判斷、連續 K 棒實體低點 SL、單向上升 ATR 移動止損 */
+    async function runAutoEngine() {
       fetchBTCSignals();
       try {
         const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
@@ -294,34 +275,201 @@
         let usdtPairs = data.filter(d => d.symbol.endsWith('USDT') && !d.symbol.includes('UP') && !d.symbol.includes('DOWN'))
                             .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 50);
 
-        const processed = await Promise.all(usdtPairs.map(async (coin) => {
+        for (let coin of usdtPairs) {
+          const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=210`);
+          const klines = await kRes.json();
+          const closes = klines.map(k => parseFloat(k[4]));
+          const price = closes[closes.length - 1];
+
+          // 1. EMA 20/50/100/200 多頭排列檢查
+          const ema20 = calcEMA(closes, 20);
+          const ema50 = calcEMA(closes, 50);
+          const ema100 = calcEMA(closes, 100);
+          const ema200 = calcEMA(closes, 200);
+          const isEmaBull = price > ema20 && ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
+
+          // 2. 檢測爆量 K 棒與 OI 資金流入
+          const lastK = klines[klines.length - 2];
+          const vol = parseFloat(lastK[5]);
+          const avgVol = klines.slice(-20).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
+          const isVolumeSpike = vol >= avgVol * 1.5;
+
+          let isOiRise = false;
           try {
-            const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=60`);
-            const klines = await kRes.json();
-            const currentPrice = parseFloat(coin.lastPrice);
-            const p1h = parseFloat(klines[klines.length - 2][4]);
-            const p4h = parseFloat(klines[Math.max(0, klines.length - 5)][4]);
+            const oiRes = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${coin.symbol}&period=1h&limit=3`);
+            const oiData = await oiRes.json();
+            if (Array.isArray(oiData) && oiData.length >= 2) {
+              const curOI = parseFloat(oiData[oiData.length - 1].sumOpenInterestValue);
+              const prevOI = parseFloat(oiData[oiData.length - 2].sumOpenInterestValue);
+              if (((curOI - prevOI) / prevOI) >= 0.01) isOiRise = true;
+            }
+          } catch(e){}
 
-            return {
-              symbol: coin.symbol.replace('USDT', ''),
-              fullSymbol: coin.symbol,
-              price: currentPrice,
-              change1h: ((currentPrice - p1h) / p1h) * 100,
-              change4h: ((currentPrice - p4h) / p4h) * 100,
-              change1d: parseFloat(coin.priceChangePercent)
-            };
-          } catch(e){ return null; }
-        }));
-
-        const validData = processed.filter(d => d !== null);
-
-        if (currentPage === 'dashboard') {
-          cachedBullList = [...validData].sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]).slice(0, 15);
-          cachedBearList = [...validData].sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]).slice(0, 15);
-          renderList('dashboard-single-list', boardMode === 'bull' ? cachedBullList : cachedBearList);
+          // 三重訊號確認 (EMA + Volume + OI)
+          if (isEmaBull && isVolumeSpike && isOiRise) {
+            checkAndCreateLimitOrder(coin.symbol, klines);
+          }
         }
 
-        document.getElementById('time').innerText = '最後更新：' + new Date().toLocaleTimeString();
+        processTradesExecution(usdtPairs);
+        document.getElementById('time').innerText = '最後掃描：' + new Date().toLocaleTimeString();
+      } catch(e){ console.error(e); }
+    }
+
+    // 計算「連續 K 棒」總實體區間 50% 掛單價與實體最低點 SL
+    function checkAndCreateLimitOrder(symbol, klines) {
+      const hasExist = paperTrades.some(t => t.symbol === symbol && (t.status === 'PENDING' || t.status === 'OPEN'));
+      if (hasExist) return;
+
+      // 向上回溯計算「連續陽線/拉升 K 棒群」（最多回溯近 5 根）
+      let seriesK = [];
+      for (let i = klines.length - 2; i >= Math.max(0, klines.length - 6); i--) {
+        const openP = parseFloat(klines[i][1]);
+        const closeP = parseFloat(klines[i][4]);
+        if (closeP >= openP) {
+          seriesK.push(klines[i]);
+        } else {
+          break; // 遇到陰線終止連續 K 棒計算
+        }
+      }
+      if (seriesK.length === 0) seriesK.push(klines[klines.length - 2]);
+
+      // 計算整段連續 K 棒的實體最高點與實體最低點
+      let maxBodyHigh = -Infinity;
+      let minBodyLow = Infinity;
+
+      seriesK.forEach(k => {
+        const o = parseFloat(k[1]), c = parseFloat(k[4]);
+        const bodyHigh = Math.max(o, c);
+        const bodyLow = Math.min(o, c);
+        if (bodyHigh > maxBodyHigh) maxBodyHigh = bodyHigh;
+        if (bodyLow < minBodyLow) minBodyLow = bodyLow;
+      });
+
+      const limitEntryPrice = (maxBodyHigh + minBodyLow) / 2; // 連續 K 棒總實體 50% 掛單價
+      const slPrice = minBodyLow; // 連續 K 棒實體最低點作為硬止損
+      const riskDistance = limitEntryPrice - slPrice;
+
+      if (riskDistance <= 0) return;
+
+      const tp1Price = limitEntryPrice + (riskDistance * 2.0); // 2x SL 止盈賣 50%
+      const currentAtr = calcATR(klines, 14);
+      const tradeId = 'trade_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+
+      const newTrade = {
+        id: tradeId,
+        symbol,
+        entryPrice: limitEntryPrice,
+        slPrice,
+        tp1Price,
+        atr: currentAtr,
+        trailStopPrice: slPrice, // 初始移動止損點 = SL
+        highestPrice: limitEntryPrice, // 記錄成交後的最高價
+        isHalfClosed: false,
+        status: 'PENDING',
+        createdTime: new Date().toLocaleTimeString(),
+        executedTime: null,
+        pnlPct: 0
+      };
+
+      tradesRef.child(tradeId).set(newTrade);
+    }
+
+    // 撮合成交與單向上升 ATR 移動止損管理
+    function processTradesExecution(marketTickers) {
+      paperTrades.forEach(t => {
+        const coin = marketTickers.find(c => c.symbol === t.symbol);
+        if (!coin) return;
+
+        const currentP = parseFloat(coin.lastPrice);
+
+        if (t.status === 'PENDING') {
+          // 回踩碰觸 50% 掛單價時真正成交
+          if (currentP <= t.entryPrice) {
+            t.status = 'OPEN';
+            t.executedTime = new Date().toLocaleTimeString();
+            t.highestPrice = t.entryPrice;
+            tradesRef.child(t.id).update(t);
+          }
+        } 
+        else if (t.status === 'OPEN') {
+          let needsUpdate = false;
+
+          // 更新持倉後的最高價
+          if (currentP > t.highestPrice) {
+            t.highestPrice = currentP;
+            needsUpdate = true;
+          }
+
+          // 更正四：TP2 移動止損根據 ATR 單向向上抬升（絕不下降）
+          if (t.isHalfClosed) {
+            const newTrailStop = t.highestPrice - (t.atr * 1.5);
+            if (newTrailStop > t.trailStopPrice) { // 只能單向調高！
+              t.trailStopPrice = newTrailStop;
+              needsUpdate = true;
+            }
+          }
+
+          // 觸發 TP1 (2x SL) 賣出 50% 倉位並開啟保本
+          if (!t.isHalfClosed && currentP >= t.tp1Price) {
+            t.isHalfClosed = true;
+            t.trailStopPrice = Math.max(t.trailStopPrice, t.entryPrice); // 止損抬升至進場價保本
+            t.pnlPct += 2.0;
+            needsUpdate = true;
+          }
+
+          // 價格向下擊穿移動止損點/保本點平倉離場
+          if (currentP <= t.trailStopPrice) {
+            t.status = t.isHalfClosed ? 'WIN' : 'LOSS';
+            t.pnlPct = t.isHalfClosed ? 1.0 : -1.0;
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            tradesRef.child(t.id).update(t);
+          }
+        }
+      });
+    }
+
+    function fetchData() {
+      fetchBTCSignals();
+      try {
+        fetch('https://api.binance.com/api/v3/ticker/24hr')
+          .then(res => res.json())
+          .then(async data => {
+            let usdtPairs = data.filter(d => d.symbol.endsWith('USDT') && !d.symbol.includes('UP') && !d.symbol.includes('DOWN'))
+                                .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 50);
+
+            const processed = await Promise.all(usdtPairs.map(async (coin) => {
+              try {
+                const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=60`);
+                const klines = await kRes.json();
+                const currentPrice = parseFloat(coin.lastPrice);
+                const p1h = parseFloat(klines[klines.length - 2][4]);
+                const p4h = parseFloat(klines[Math.max(0, klines.length - 5)][4]);
+
+                return {
+                  symbol: coin.symbol.replace('USDT', ''),
+                  fullSymbol: coin.symbol,
+                  price: currentPrice,
+                  change1h: ((currentPrice - p1h) / p1h) * 100,
+                  change4h: ((currentPrice - p4h) / p4h) * 100,
+                  change1d: parseFloat(coin.priceChangePercent)
+                };
+              } catch(e){ return null; }
+            }));
+
+            const validData = processed.filter(d => d !== null);
+
+            if (currentPage === 'dashboard') {
+              cachedBullList = [...validData].sort((a, b) => b[`change${currentTimeframe}`] - a[`change${currentTimeframe}`]).slice(0, 15);
+              cachedBearList = [...validData].sort((a, b) => a[`change${currentTimeframe}`] - b[`change${currentTimeframe}`]).slice(0, 15);
+              renderList('dashboard-single-list', boardMode === 'bull' ? cachedBullList : cachedBearList);
+            }
+
+            document.getElementById('time').innerText = '最後更新：' + new Date().toLocaleTimeString();
+          });
       } catch(e){ console.error(e); }
     }
 
@@ -371,35 +519,33 @@
       const container = document.getElementById('paper-trades-list');
       container.innerHTML = '';
 
-      const filtered = paperTrades.filter(t => t.engineType === activeEngine);
+      let closed = paperTrades.filter(t => t.status === 'WIN' || t.status === 'LOSS');
+      let wins = paperTrades.filter(t => t.status === 'WIN').length;
+      let winrate = closed.length > 0 ? ((wins/closed.length)*100).toFixed(1) : 0;
+      let totalPnl = paperTrades.reduce((acc, curr) => acc + curr.pnlPct, 0).toFixed(1);
 
-      let total = filtered.length;
-      let wins = filtered.filter(t => t.status === 'WIN').length;
-      let closed = filtered.filter(t => t.status !== 'OPEN').length;
-      let winrate = closed > 0 ? ((wins/closed)*100).toFixed(1) : 0;
-      let totalPnl = filtered.reduce((acc, curr) => acc + curr.pnlPct, 0).toFixed(1);
-
-      document.getElementById('stat-total').innerText = total;
+      document.getElementById('stat-total').innerText = paperTrades.filter(t => t.status !== 'PENDING').length;
       document.getElementById('stat-winrate').innerText = winrate + '%';
-      document.getElementById('stat-pnl').innerText = (totalPnl >= 0 ? '+' : '') + totalPnl + '%';
+      document.getElementById('stat-pnl').innerText = (totalPnl >= 0 ? '+' : '') + totalPnl + ' R';
 
-      if (filtered.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無監控中的模擬單...</div>`;
+      if (paperTrades.length === 0) {
+        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">目前無監控中或掛單中的標的...</div>`;
         return;
       }
 
-      filtered.forEach(t => {
-        let badge = '<span class="badge" style="background:#38bdf8;color:#000;">持倉監控中 OPEN</span>';
-        if (t.isHalfClosed) badge = '<span class="badge badge-pump">✅ 已鎖定 2x SL 保本中</span>';
+      paperTrades.forEach(t => {
+        let badge = '<span class="badge badge-pending">⏳ 連續K棒 50% 掛單中 (等待回踩)</span>';
+        if (t.status === 'OPEN' && !t.isHalfClosed) badge = '<span class="badge" style="background:#38bdf8;color:#000;">🟢 已回踩進場 (持倉中)</span>';
+        if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (ATR 移動止損抬升中)</span>';
         if (t.status === 'WIN') badge = '<span class="badge badge-pump">🎯 獲利結算 WIN</span>';
-        if (t.status === 'LOSS') badge = '<span class="badge" style="background:#ef4444;color:#fff;">🚨 止損出場 LOSS</span>';
+        if (t.status === 'LOSS') badge = '<span class="badge" style="background:#ef4444;color:#fff;">🚨 觸發止損 LOSS</span>';
 
         container.innerHTML += `
           <div class="card">
             <div class="card-header" onclick="toggleTradeCharts('${t.id}', '${t.symbol}')">
               <div>
-                <div class="symbol">${t.symbol} <span style="font-size:12px;color:#848e9c;">[策略 ${t.engineType}]</span></div>
-                <div class="badges">${badge} <span style="font-size:10px;color:#848e9c;">時間: ${t.entryTime}</span></div>
+                <div class="symbol">${t.symbol}</div>
+                <div class="badges">${badge} <span style="font-size:10px;color:#848e9c;">掛單時間: ${t.createdTime} ${t.executedTime ? '| 成交: '+t.executedTime : ''}</span></div>
               </div>
               <div style="font-weight:bold;font-size:16px;color:${t.pnlPct >= 0 ? '#22c55e':'#ef4444'};">
                 ${t.pnlPct >= 0 ? '+':''}${t.pnlPct.toFixed(1)} R
@@ -408,10 +554,10 @@
 
             <div class="charts-wrapper" id="trade-wrapper-${t.id}">
               <div class="position-box-panel">
-                <div class="position-item pos-entry"><div class="pos-label">🟡 50% 大綠K進場價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
-                <div class="position-item pos-sl"><div class="pos-label">🔴 起漲點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-entry"><div class="pos-label">🟡 連續K棒50%掛單價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-sl"><div class="pos-label">🔴 實體最低點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
                 <div class="position-item pos-tp"><div class="pos-label">🟢 1TP (2x SL 賣50%)</div><div class="pos-val" style="color:#22c55e;">$${t.tp1Price.toFixed(4)}</div></div>
-                <div class="position-item pos-trail"><div class="pos-label">🛡️ 當前保本/移動SL</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-trail"><div class="pos-label">🛡️ 單向上升 ATR 止損</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
               </div>
               <div class="tv-chart-container" id="tv-box-${t.id}"></div>
             </div>
@@ -429,21 +575,21 @@
       container.innerHTML = '';
       setTimeout(() => {
         new TradingView.widget({
-          "autosize": true, "symbol": `BINANCE:${symbol}`, "interval": activeEngine === 'A' ? "60" : "240",
+          "autosize": true, "symbol": `BINANCE:${symbol}`, "interval": "60",
           "timezone": "Asia/Taipei", "theme": "dark", "style": "1", "container_id": `tv-box-${tradeId}`
         });
       }, 50);
     }
 
     function exportTradesCSV() {
-      let csvContent = "data:text/csv;charset=utf-8,\uFEFFID,策略類型,代幣,進場價,起漲點止損價,2xSL止盈價,狀態,盈虧R值,開單時間\n";
+      let csvContent = "data:text/csv;charset=utf-8,\uFEFFID,代幣,50%掛單價,實體最低點止損價,2xSL止盈價,狀態,盈虧R值,掛單時間\n";
       paperTrades.forEach(t => {
-        csvContent += `${t.id},策略${t.engineType},${t.symbol},${t.entryPrice},${t.slPrice},${t.tp1Price},${t.status},${t.pnlPct},${t.entryTime}\n`;
+        csvContent += `${t.id},${t.symbol},${t.entryPrice},${t.slPrice},${t.tp1Price},${t.status},${t.pnlPct},${t.createdTime}\n`;
       });
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `Firebase_Trades_Report_${new Date().toISOString().slice(0,10)}.csv`);
+      link.setAttribute("download", `LimitOrder_Trades_Report_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -455,8 +601,8 @@
       }
     }
 
-    fetchData();
-    setInterval(fetchData, 120000);
+    runAutoEngine();
+    setInterval(runAutoEngine, 120000);
   </script>
 </body>
 </html>
