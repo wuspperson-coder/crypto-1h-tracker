@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安精準動能量化模擬交易引擎 (EMA 20/50/100/200 + ATR 單向移動止損)</title>
+  <title>幣安精準動能量化模擬交易引擎 (雙策略 + EMA 20/50/100/200 + ATR 單向移動止損)</title>
   
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -47,6 +47,11 @@
 
     .page-section { display: none; }
     .page-section.active { display: block; }
+
+    .strategy-toggle-bar { display: flex; gap: 10px; margin-bottom: 15px; }
+    .strat-btn { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #2b313a; background: #141821; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; }
+    .strat-btn.active-a { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
+    .strat-btn.active-b { background: rgba(240, 185, 11, 0.2); color: #f0b90b; border-color: #f0b90b; }
 
     .data-tools-bar { display: flex; gap: 10px; margin-bottom: 15px; background: #141821; padding: 10px; border-radius: 8px; border: 1px solid #2b313a; align-items: center; flex-wrap: wrap; }
     .tool-btn { background: #1e2329; border: 1px solid #2b313a; color: #eaecef; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; }
@@ -139,6 +144,12 @@
     </div>
 
     <div class="page-section" id="page-paper">
+      <!-- 雙策略切換按紐 -->
+      <div class="strategy-toggle-bar">
+        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行 / 4H趨勢)</button>
+        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行 / 1D趨勢)</button>
+      </div>
+
       <div class="data-tools-bar">
         <span style="font-size:12px;font-weight:bold;color:#f0b90b;">💾 雲端備份與匯出：</span>
         <button class="tool-btn" onclick="exportTradesCSV()">📊 下載 Excel 複盤分析檔 (CSV)</button>
@@ -176,6 +187,7 @@
     let currentTimeframe = '1h';
     let currentPage = 'dashboard';
     let boardMode = 'bull';
+    let activeEngine = 'A'; // 'A' 或 'B'
     let paperTrades = [];
 
     let cachedBullList = [];
@@ -227,6 +239,13 @@
       renderList('dashboard-single-list', mode === 'bull' ? cachedBullList : cachedBearList);
     }
 
+    function switchStrategyEngine(engine) {
+      activeEngine = engine;
+      document.getElementById('btn-strat-a').className = engine === 'A' ? 'strat-btn active-a' : 'strat-btn';
+      document.getElementById('btn-strat-b').className = engine === 'B' ? 'strat-btn active-b' : 'strat-btn';
+      renderPaperTrades();
+    }
+
     function calcEMA(prices, period) {
       if (prices.length < period) return prices[prices.length - 1];
       const k = 2 / (period + 1);
@@ -244,7 +263,6 @@
       return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
     }
 
-    /* 🚦 更正一：BTC 大盤紅綠燈採用 EMA 20/50/100/200 排列 */
     async function fetchBTCSignals() {
       try {
         const tfs = [{tf:'15m',id:'btc-light-15m'}, {tf:'1h',id:'btc-light-1h'}, {tf:'4h',id:'btc-light-4h'}, {tf:'1d',id:'btc-light-1d'}];
@@ -266,7 +284,6 @@
       } catch(e){}
     }
 
-    /* 🤖 更正二/三/四：小區塊訊號判斷、連續 K 棒實體低點 SL、單向上升 ATR 移動止損 */
     async function runAutoEngine() {
       fetchBTCSignals();
       try {
@@ -276,39 +293,17 @@
                             .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume)).slice(0, 50);
 
         for (let coin of usdtPairs) {
-          const kRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=210`);
-          const klines = await kRes.json();
-          const closes = klines.map(k => parseFloat(k[4]));
-          const price = closes[closes.length - 1];
+          const [k1hRes, k4hRes] = await Promise.all([
+            fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=1h&limit=210`),
+            fetch(`https://api.binance.com/api/v3/klines?symbol=${coin.symbol}&interval=4h&limit=210`)
+          ]);
+          const k1h = await k1hRes.json();
+          const k4h = await k4hRes.json();
 
-          // 1. EMA 20/50/100/200 多頭排列檢查
-          const ema20 = calcEMA(closes, 20);
-          const ema50 = calcEMA(closes, 50);
-          const ema100 = calcEMA(closes, 100);
-          const ema200 = calcEMA(closes, 200);
-          const isEmaBull = price > ema20 && ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
-
-          // 2. 檢測爆量 K 棒與 OI 資金流入
-          const lastK = klines[klines.length - 2];
-          const vol = parseFloat(lastK[5]);
-          const avgVol = klines.slice(-20).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
-          const isVolumeSpike = vol >= avgVol * 1.5;
-
-          let isOiRise = false;
-          try {
-            const oiRes = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${coin.symbol}&period=1h&limit=3`);
-            const oiData = await oiRes.json();
-            if (Array.isArray(oiData) && oiData.length >= 2) {
-              const curOI = parseFloat(oiData[oiData.length - 1].sumOpenInterestValue);
-              const prevOI = parseFloat(oiData[oiData.length - 2].sumOpenInterestValue);
-              if (((curOI - prevOI) / prevOI) >= 0.01) isOiRise = true;
-            }
-          } catch(e){}
-
-          // 三重訊號確認 (EMA + Volume + OI)
-          if (isEmaBull && isVolumeSpike && isOiRise) {
-            checkAndCreateLimitOrder(coin.symbol, klines);
-          }
+          // 判斷策略 A (1H 執行)
+          evaluateStrategy(coin.symbol, 'A', k1h);
+          // 判斷策略 B (4H 執行)
+          evaluateStrategy(coin.symbol, 'B', k4h);
         }
 
         processTradesExecution(usdtPairs);
@@ -316,55 +311,80 @@
       } catch(e){ console.error(e); }
     }
 
-    // 計算「連續 K 棒」總實體區間 50% 掛單價與實體最低點 SL
-    function checkAndCreateLimitOrder(symbol, klines) {
-      const hasExist = paperTrades.some(t => t.symbol === symbol && (t.status === 'PENDING' || t.status === 'OPEN'));
+    async function evaluateStrategy(symbol, engineType, klines) {
+      const closes = klines.map(k => parseFloat(k[4]));
+      const price = closes[closes.length - 1];
+
+      // 1. EMA 20/50/100/200 檢查
+      const ema20 = calcEMA(closes, 20);
+      const ema50 = calcEMA(closes, 50);
+      const ema100 = calcEMA(closes, 100);
+      const ema200 = calcEMA(closes, 200);
+      const isEmaBull = price > ema20 && ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
+
+      // 2. 爆量 1.5 倍判定
+      const lastK = klines[klines.length - 2];
+      const vol = parseFloat(lastK[5]);
+      const avgVol = klines.slice(-20).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
+      const isVolumeSpike = vol >= avgVol * 1.5;
+
+      // 3. OI 增幅 1.0% 判定
+      let isOiRise = false;
+      try {
+        const interval = engineType === 'A' ? '1h' : '4h';
+        const oiRes = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=${interval}&limit=3`);
+        const oiData = await oiRes.json();
+        if (Array.isArray(oiData) && oiData.length >= 2) {
+          const curOI = parseFloat(oiData[oiData.length - 1].sumOpenInterestValue);
+          const prevOI = parseFloat(oiData[oiData.length - 2].sumOpenInterestValue);
+          if (((curOI - prevOI) / prevOI) >= 0.01) isOiRise = true;
+        }
+      } catch(e){}
+
+      if (isEmaBull && isVolumeSpike && isOiRise) {
+        checkAndCreateLimitOrder(symbol, engineType, klines);
+      }
+    }
+
+    function checkAndCreateLimitOrder(symbol, engineType, klines) {
+      const hasExist = paperTrades.some(t => t.symbol === symbol && t.engineType === engineType && (t.status === 'PENDING' || t.status === 'OPEN'));
       if (hasExist) return;
 
-      // 向上回溯計算「連續陽線/拉升 K 棒群」（最多回溯近 5 根）
       let seriesK = [];
       for (let i = klines.length - 2; i >= Math.max(0, klines.length - 6); i--) {
-        const openP = parseFloat(klines[i][1]);
-        const closeP = parseFloat(klines[i][4]);
-        if (closeP >= openP) {
-          seriesK.push(klines[i]);
-        } else {
-          break; // 遇到陰線終止連續 K 棒計算
-        }
+        const openP = parseFloat(klines[i][1]), closeP = parseFloat(klines[i][4]);
+        if (closeP >= openP) seriesK.push(klines[i]);
+        else break;
       }
       if (seriesK.length === 0) seriesK.push(klines[klines.length - 2]);
 
-      // 計算整段連續 K 棒的實體最高點與實體最低點
-      let maxBodyHigh = -Infinity;
-      let minBodyLow = Infinity;
-
+      let maxBodyHigh = -Infinity, minBodyLow = Infinity;
       seriesK.forEach(k => {
         const o = parseFloat(k[1]), c = parseFloat(k[4]);
-        const bodyHigh = Math.max(o, c);
-        const bodyLow = Math.min(o, c);
-        if (bodyHigh > maxBodyHigh) maxBodyHigh = bodyHigh;
-        if (bodyLow < minBodyLow) minBodyLow = bodyLow;
+        maxBodyHigh = Math.max(maxBodyHigh, o, c);
+        minBodyLow = Math.min(minBodyLow, o, c);
       });
 
-      const limitEntryPrice = (maxBodyHigh + minBodyLow) / 2; // 連續 K 棒總實體 50% 掛單價
-      const slPrice = minBodyLow; // 連續 K 棒實體最低點作為硬止損
+      const limitEntryPrice = (maxBodyHigh + minBodyLow) / 2;
+      const slPrice = minBodyLow;
       const riskDistance = limitEntryPrice - slPrice;
 
       if (riskDistance <= 0) return;
 
-      const tp1Price = limitEntryPrice + (riskDistance * 2.0); // 2x SL 止盈賣 50%
+      const tp1Price = limitEntryPrice + (riskDistance * 2.0);
       const currentAtr = calcATR(klines, 14);
       const tradeId = 'trade_' + Date.now() + '_' + Math.floor(Math.random()*1000);
 
       const newTrade = {
         id: tradeId,
+        engineType,
         symbol,
         entryPrice: limitEntryPrice,
         slPrice,
         tp1Price,
         atr: currentAtr,
-        trailStopPrice: slPrice, // 初始移動止損點 = SL
-        highestPrice: limitEntryPrice, // 記錄成交後的最高價
+        trailStopPrice: slPrice,
+        highestPrice: limitEntryPrice,
         isHalfClosed: false,
         status: 'PENDING',
         createdTime: new Date().toLocaleTimeString(),
@@ -375,7 +395,6 @@
       tradesRef.child(tradeId).set(newTrade);
     }
 
-    // 撮合成交與單向上升 ATR 移動止損管理
     function processTradesExecution(marketTickers) {
       paperTrades.forEach(t => {
         const coin = marketTickers.find(c => c.symbol === t.symbol);
@@ -384,7 +403,6 @@
         const currentP = parseFloat(coin.lastPrice);
 
         if (t.status === 'PENDING') {
-          // 回踩碰觸 50% 掛單價時真正成交
           if (currentP <= t.entryPrice) {
             t.status = 'OPEN';
             t.executedTime = new Date().toLocaleTimeString();
@@ -395,30 +413,26 @@
         else if (t.status === 'OPEN') {
           let needsUpdate = false;
 
-          // 更新持倉後的最高價
           if (currentP > t.highestPrice) {
             t.highestPrice = currentP;
             needsUpdate = true;
           }
 
-          // 更正四：TP2 移動止損根據 ATR 單向向上抬升（絕不下降）
           if (t.isHalfClosed) {
             const newTrailStop = t.highestPrice - (t.atr * 1.5);
-            if (newTrailStop > t.trailStopPrice) { // 只能單向調高！
+            if (newTrailStop > t.trailStopPrice) {
               t.trailStopPrice = newTrailStop;
               needsUpdate = true;
             }
           }
 
-          // 觸發 TP1 (2x SL) 賣出 50% 倉位並開啟保本
           if (!t.isHalfClosed && currentP >= t.tp1Price) {
             t.isHalfClosed = true;
-            t.trailStopPrice = Math.max(t.trailStopPrice, t.entryPrice); // 止損抬升至進場價保本
+            t.trailStopPrice = Math.max(t.trailStopPrice, t.entryPrice);
             t.pnlPct += 2.0;
             needsUpdate = true;
           }
 
-          // 價格向下擊穿移動止損點/保本點平倉離場
           if (currentP <= t.trailStopPrice) {
             t.status = t.isHalfClosed ? 'WIN' : 'LOSS';
             t.pnlPct = t.isHalfClosed ? 1.0 : -1.0;
@@ -519,21 +533,23 @@
       const container = document.getElementById('paper-trades-list');
       container.innerHTML = '';
 
-      let closed = paperTrades.filter(t => t.status === 'WIN' || t.status === 'LOSS');
-      let wins = paperTrades.filter(t => t.status === 'WIN').length;
-      let winrate = closed.length > 0 ? ((wins/closed.length)*100).toFixed(1) : 0;
-      let totalPnl = paperTrades.reduce((acc, curr) => acc + curr.pnlPct, 0).toFixed(1);
+      const filtered = paperTrades.filter(t => t.engineType === activeEngine);
 
-      document.getElementById('stat-total').innerText = paperTrades.filter(t => t.status !== 'PENDING').length;
+      let closed = filtered.filter(t => t.status === 'WIN' || t.status === 'LOSS');
+      let wins = filtered.filter(t => t.status === 'WIN').length;
+      let winrate = closed.length > 0 ? ((wins/closed.length)*100).toFixed(1) : 0;
+      let totalPnl = filtered.reduce((acc, curr) => acc + curr.pnlPct, 0).toFixed(1);
+
+      document.getElementById('stat-total').innerText = filtered.filter(t => t.status !== 'PENDING').length;
       document.getElementById('stat-winrate').innerText = winrate + '%';
       document.getElementById('stat-pnl').innerText = (totalPnl >= 0 ? '+' : '') + totalPnl + ' R';
 
-      if (paperTrades.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">目前無監控中或掛單中的標的...</div>`;
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無監控中或掛單中的標的...</div>`;
         return;
       }
 
-      paperTrades.forEach(t => {
+      filtered.forEach(t => {
         let badge = '<span class="badge badge-pending">⏳ 連續K棒 50% 掛單中 (等待回踩)</span>';
         if (t.status === 'OPEN' && !t.isHalfClosed) badge = '<span class="badge" style="background:#38bdf8;color:#000;">🟢 已回踩進場 (持倉中)</span>';
         if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (ATR 移動止損抬升中)</span>';
@@ -544,7 +560,7 @@
           <div class="card">
             <div class="card-header" onclick="toggleTradeCharts('${t.id}', '${t.symbol}')">
               <div>
-                <div class="symbol">${t.symbol}</div>
+                <div class="symbol">${t.symbol} <span style="font-size:12px;color:#848e9c;">[策略 ${t.engineType}]</span></div>
                 <div class="badges">${badge} <span style="font-size:10px;color:#848e9c;">掛單時間: ${t.createdTime} ${t.executedTime ? '| 成交: '+t.executedTime : ''}</span></div>
               </div>
               <div style="font-weight:bold;font-size:16px;color:${t.pnlPct >= 0 ? '#22c55e':'#ef4444'};">
@@ -575,16 +591,16 @@
       container.innerHTML = '';
       setTimeout(() => {
         new TradingView.widget({
-          "autosize": true, "symbol": `BINANCE:${symbol}`, "interval": "60",
+          "autosize": true, "symbol": `BINANCE:${symbol}`, "interval": activeEngine === 'A' ? "60" : "240",
           "timezone": "Asia/Taipei", "theme": "dark", "style": "1", "container_id": `tv-box-${tradeId}`
         });
       }, 50);
     }
 
     function exportTradesCSV() {
-      let csvContent = "data:text/csv;charset=utf-8,\uFEFFID,代幣,50%掛單價,實體最低點止損價,2xSL止盈價,狀態,盈虧R值,掛單時間\n";
+      let csvContent = "data:text/csv;charset=utf-8,\uFEFFID,策略類型,代幣,50%掛單價,實體最低點止損價,2xSL止盈價,狀態,盈虧R值,掛單時間\n";
       paperTrades.forEach(t => {
-        csvContent += `${t.id},${t.symbol},${t.entryPrice},${t.slPrice},${t.tp1Price},${t.status},${t.pnlPct},${t.createdTime}\n`;
+        csvContent += `${t.id},策略${t.engineType},${t.symbol},${t.entryPrice},${t.slPrice},${t.tp1Price},${t.status},${t.pnlPct},${t.createdTime}\n`;
       });
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
