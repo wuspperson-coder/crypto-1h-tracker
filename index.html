@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安精準動能量化模擬交易引擎 (修復連續K棒50%邊界演算法)</title>
+  <title>幣安精準動能量化模擬交易引擎 (明確做單條件面板版)</title>
   
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -52,6 +52,14 @@
     .strat-btn { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #2b313a; background: #141821; color: #848e9c; font-weight: bold; cursor: pointer; text-align: center; }
     .strat-btn.active-a { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
     .strat-btn.active-b { background: rgba(240, 185, 11, 0.2); color: #f0b90b; border-color: #f0b90b; }
+
+    /* 📌 做單條件詳細說明面板 */
+    .conditions-panel { background: #141821; border: 1px solid #2b313a; border-radius: 12px; padding: 16px; margin-bottom: 15px; }
+    .conditions-title { color: #f0b90b; font-size: 14px; font-weight: bold; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .conditions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; font-size: 12px; }
+    .condition-item { background: #1e2329; border: 1px solid #2b313a; padding: 10px; border-radius: 8px; }
+    .condition-label { color: #848e9c; margin-bottom: 4px; font-weight: 500; }
+    .condition-val { color: #eaecef; font-weight: bold; }
 
     .data-tools-bar { display: flex; gap: 10px; margin-bottom: 15px; background: #141821; padding: 10px; border-radius: 8px; border: 1px solid #2b313a; align-items: center; flex-wrap: wrap; }
     .tool-btn { background: #1e2329; border: 1px solid #2b313a; color: #eaecef; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; }
@@ -145,8 +153,47 @@
 
     <div class="page-section" id="page-paper">
       <div class="strategy-toggle-bar">
-        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行 / Volume 2.0x / K線 >=4%)</button>
-        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行 / Volume 2.0x / K線 >=4%)</button>
+        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行)</button>
+        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行)</button>
+      </div>
+
+      <!-- 📌 策略做單與風控條件說明面板 -->
+      <div class="conditions-panel">
+        <div class="conditions-title">📋 系統自動觸發做單與風控條件 (Hard Thresholds)</div>
+        <div class="conditions-grid">
+          <div class="condition-item">
+            <div class="condition-label">1. 趨勢條件 (EMA)</div>
+            <div class="condition-val" style="color:#22c55e;">EMA 20 > 50 > 100 > 200 (多頭發散)</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">2. 爆量門檻 (Volume)</div>
+            <div class="condition-val" style="color:#f0b90b;">成交量 >= 2.0x (近20期均量2倍)</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">3. K線強度 (Body Gain)</div>
+            <div class="condition-val" style="color:#38bdf8;">大綠K實體漲幅 >= 4.0%</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">4. 持倉數據 (OI)</div>
+            <div class="condition-val" style="color:#a855f7;">1H 合約持倉量淨增長 >= +1.0%</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">5. 進場點位 (Entry)</div>
+            <div class="condition-val" style="color:#facc15;">連續K棒「純實體」50% 限價買單</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">6. 風控止損 (SL)</div>
+            <div class="condition-val" style="color:#ef4444;">連續K棒「純實體」最低點 (Body Low)</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">7. 第一止盈 (TP1)</div>
+            <div class="condition-val" style="color:#22c55e;">2x SL 距離賣 50% + 止損移至進場價保本</div>
+          </div>
+          <div class="condition-item">
+            <div class="condition-label">8. 第二止盈 (TP2)</div>
+            <div class="condition-val" style="color:#38bdf8;">1.5 x ATR(14) 動態移動止損 (單向上升)</div>
+          </div>
+        </div>
       </div>
 
       <div class="data-tools-bar">
@@ -328,7 +375,7 @@
 
         if (c > o && gain >= 4.0 && v >= avgV * 2.0) {
           breakoutKIndex = i;
-          break; // 找到最近的真正突破大綠 K 棒！
+          break;
         }
       }
 
@@ -352,28 +399,25 @@
       }
     }
 
-    /* 🎯 邊界演算法修復：精確計算突破區間頂部與底部 50% 位置 */
     function checkAndCreateLimitOrder(symbol, engineType, klines, breakoutIndex) {
       const hasExist = paperTrades.some(t => t.symbol === symbol && t.engineType === engineType && (t.status === 'PENDING' || t.status === 'OPEN'));
       if (hasExist) return;
 
-      // 頂界：爆量大綠 K 棒的實體收盤價（絕不採計頂部帶長上影線或陰線）
       const breakoutK = klines[breakoutIndex];
       const topBodyHigh = Math.max(parseFloat(breakoutK[1]), parseFloat(breakoutK[4]));
 
-      // 底界：向上回溯連續陽線群的實體最低點
       let bottomBodyLow = Math.min(parseFloat(breakoutK[1]), parseFloat(breakoutK[4]));
       for (let i = breakoutIndex - 1; i >= Math.max(0, breakoutIndex - 5); i--) {
         const o = parseFloat(klines[i][1]), c = parseFloat(klines[i][4]);
         if (c >= o) {
           bottomBodyLow = Math.min(bottomBodyLow, o, c);
         } else {
-          break; // 遇到陰線終止底界計算
+          break;
         }
       }
 
-      const limitEntryPrice = (topBodyHigh + bottomBodyLow) / 2; // 精確 50% 掛單價（例如 $0.064）
-      const slPrice = bottomBodyLow; // 起漲區間實體最低點 SL
+      const limitEntryPrice = (topBodyHigh + bottomBodyLow) / 2;
+      const slPrice = bottomBodyLow;
       const riskDistance = limitEntryPrice - slPrice;
 
       if (riskDistance <= 0) return;
@@ -425,6 +469,7 @@
             needsUpdate = true;
           }
 
+          // TP2: 1.5x ATR(14) 單向上升移動止損
           if (t.isHalfClosed) {
             const newTrailStop = t.highestPrice - (t.atr * 1.5);
             if (newTrailStop > t.trailStopPrice) {
@@ -559,7 +604,7 @@
       filtered.forEach(t => {
         let badge = '<span class="badge badge-pending">⏳ 連續K棒 50% 掛單中 (等待回踩)</span>';
         if (t.status === 'OPEN' && !t.isHalfClosed) badge = '<span class="badge" style="background:#38bdf8;color:#000;">🟢 已回踩進場 (持倉中)</span>';
-        if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (ATR 移動止損抬升中)</span>';
+        if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (1.5x ATR 止損抬升中)</span>';
         if (t.status === 'WIN') badge = '<span class="badge badge-pump">🎯 獲利結算 WIN</span>';
         if (t.status === 'LOSS') badge = '<span class="badge" style="background:#ef4444;color:#fff;">🚨 觸發止損 LOSS</span>';
 
@@ -580,7 +625,7 @@
                 <div class="position-item pos-entry"><div class="pos-label">🟡 精確 50% 掛單價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
                 <div class="position-item pos-sl"><div class="pos-label">🔴 起漲點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
                 <div class="position-item pos-tp"><div class="pos-label">🟢 1TP (2x SL 賣50%)</div><div class="pos-val" style="color:#22c55e;">$${t.tp1Price.toFixed(4)}</div></div>
-                <div class="position-item pos-trail"><div class="pos-label">🛡️ 單向上升 ATR 止損</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-trail"><div class="pos-label">🛡️ 1.5x ATR 單向上升止損</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
               </div>
               <div class="tv-chart-container" id="tv-box-${t.id}"></div>
             </div>
