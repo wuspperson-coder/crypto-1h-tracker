@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安精準動能量化模擬交易引擎 (雙策略 + EMA 20/50/100/200 + ATR 單向移動止損)</title>
+  <title>幣安精準動能量化模擬交易引擎 (修復連續K棒50%邊界演算法)</title>
   
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -144,10 +144,9 @@
     </div>
 
     <div class="page-section" id="page-paper">
-      <!-- 雙策略切換按紐 -->
       <div class="strategy-toggle-bar">
-        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行 / 4H趨勢)</button>
-        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行 / 1D趨勢)</button>
+        <button class="strat-btn active-a" id="btn-strat-a" onclick="switchStrategyEngine('A')">⚡ 策略 A：短線爆發型 (1H執行 / Volume 2.0x / K線 >=4%)</button>
+        <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行 / Volume 2.0x / K線 >=4%)</button>
       </div>
 
       <div class="data-tools-bar">
@@ -187,7 +186,7 @@
     let currentTimeframe = '1h';
     let currentPage = 'dashboard';
     let boardMode = 'bull';
-    let activeEngine = 'A'; // 'A' 或 'B'
+    let activeEngine = 'A';
     let paperTrades = [];
 
     let cachedBullList = [];
@@ -219,7 +218,7 @@
       } else if (page === 'paper') {
         document.getElementById('menu-paper').classList.add('active');
         document.getElementById('page-paper').classList.add('active');
-        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎 (EMA 20/50/100/200)';
+        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎 (Volume 2.0x + K線 >=4%)';
         document.getElementById('tf-group').style.display = 'none';
         renderPaperTrades();
       }
@@ -300,9 +299,7 @@
           const k1h = await k1hRes.json();
           const k4h = await k4hRes.json();
 
-          // 判斷策略 A (1H 執行)
           evaluateStrategy(coin.symbol, 'A', k1h);
-          // 判斷策略 B (4H 執行)
           evaluateStrategy(coin.symbol, 'B', k4h);
         }
 
@@ -315,20 +312,29 @@
       const closes = klines.map(k => parseFloat(k[4]));
       const price = closes[closes.length - 1];
 
-      // 1. EMA 20/50/100/200 檢查
+      // 1. EMA 20/50/100/200 多頭排列檢查
       const ema20 = calcEMA(closes, 20);
       const ema50 = calcEMA(closes, 50);
       const ema100 = calcEMA(closes, 100);
       const ema200 = calcEMA(closes, 200);
       const isEmaBull = price > ema20 && ema20 > ema50 && ema50 > ema100 && ema100 > ema200;
 
-      // 2. 爆量 1.5 倍判定
-      const lastK = klines[klines.length - 2];
-      const vol = parseFloat(lastK[5]);
-      const avgVol = klines.slice(-20).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
-      const isVolumeSpike = vol >= avgVol * 1.5;
+      // 尋找主導突破的大綠 K（成交量 2.0 倍且實體漲幅 >= 4%）
+      let breakoutKIndex = -1;
+      for (let i = klines.length - 2; i >= Math.max(0, klines.length - 8); i--) {
+        const o = parseFloat(klines[i][1]), c = parseFloat(klines[i][4]), v = parseFloat(klines[i][5]);
+        const avgV = klines.slice(Math.max(0, i-20), i).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
+        const gain = ((c - o) / o) * 100;
 
-      // 3. OI 增幅 1.0% 判定
+        if (c > o && gain >= 4.0 && v >= avgV * 2.0) {
+          breakoutKIndex = i;
+          break; // 找到最近的真正突破大綠 K 棒！
+        }
+      }
+
+      if (breakoutKIndex === -1 || !isEmaBull) return;
+
+      // 2. 檢查 OI 增幅 1.0%
       let isOiRise = false;
       try {
         const interval = engineType === 'A' ? '1h' : '4h';
@@ -341,32 +347,33 @@
         }
       } catch(e){}
 
-      if (isEmaBull && isVolumeSpike && isOiRise) {
-        checkAndCreateLimitOrder(symbol, engineType, klines);
+      if (isOiRise) {
+        checkAndCreateLimitOrder(symbol, engineType, klines, breakoutKIndex);
       }
     }
 
-    function checkAndCreateLimitOrder(symbol, engineType, klines) {
+    /* 🎯 邊界演算法修復：精確計算突破區間頂部與底部 50% 位置 */
+    function checkAndCreateLimitOrder(symbol, engineType, klines, breakoutIndex) {
       const hasExist = paperTrades.some(t => t.symbol === symbol && t.engineType === engineType && (t.status === 'PENDING' || t.status === 'OPEN'));
       if (hasExist) return;
 
-      let seriesK = [];
-      for (let i = klines.length - 2; i >= Math.max(0, klines.length - 6); i--) {
-        const openP = parseFloat(klines[i][1]), closeP = parseFloat(klines[i][4]);
-        if (closeP >= openP) seriesK.push(klines[i]);
-        else break;
+      // 頂界：爆量大綠 K 棒的實體收盤價（絕不採計頂部帶長上影線或陰線）
+      const breakoutK = klines[breakoutIndex];
+      const topBodyHigh = Math.max(parseFloat(breakoutK[1]), parseFloat(breakoutK[4]));
+
+      // 底界：向上回溯連續陽線群的實體最低點
+      let bottomBodyLow = Math.min(parseFloat(breakoutK[1]), parseFloat(breakoutK[4]));
+      for (let i = breakoutIndex - 1; i >= Math.max(0, breakoutIndex - 5); i--) {
+        const o = parseFloat(klines[i][1]), c = parseFloat(klines[i][4]);
+        if (c >= o) {
+          bottomBodyLow = Math.min(bottomBodyLow, o, c);
+        } else {
+          break; // 遇到陰線終止底界計算
+        }
       }
-      if (seriesK.length === 0) seriesK.push(klines[klines.length - 2]);
 
-      let maxBodyHigh = -Infinity, minBodyLow = Infinity;
-      seriesK.forEach(k => {
-        const o = parseFloat(k[1]), c = parseFloat(k[4]);
-        maxBodyHigh = Math.max(maxBodyHigh, o, c);
-        minBodyLow = Math.min(minBodyLow, o, c);
-      });
-
-      const limitEntryPrice = (maxBodyHigh + minBodyLow) / 2;
-      const slPrice = minBodyLow;
+      const limitEntryPrice = (topBodyHigh + bottomBodyLow) / 2; // 精確 50% 掛單價（例如 $0.064）
+      const slPrice = bottomBodyLow; // 起漲區間實體最低點 SL
       const riskDistance = limitEntryPrice - slPrice;
 
       if (riskDistance <= 0) return;
@@ -545,7 +552,7 @@
       document.getElementById('stat-pnl').innerText = (totalPnl >= 0 ? '+' : '') + totalPnl + ' R';
 
       if (filtered.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無監控中或掛單中的標的...</div>`;
+        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無符合條件的標的...</div>`;
         return;
       }
 
@@ -570,8 +577,8 @@
 
             <div class="charts-wrapper" id="trade-wrapper-${t.id}">
               <div class="position-box-panel">
-                <div class="position-item pos-entry"><div class="pos-label">🟡 連續K棒50%掛單價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
-                <div class="position-item pos-sl"><div class="pos-label">🔴 實體最低點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-entry"><div class="pos-label">🟡 精確 50% 掛單價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-sl"><div class="pos-label">🔴 起漲點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
                 <div class="position-item pos-tp"><div class="pos-label">🟢 1TP (2x SL 賣50%)</div><div class="pos-val" style="color:#22c55e;">$${t.tp1Price.toFixed(4)}</div></div>
                 <div class="position-item pos-trail"><div class="pos-label">🛡️ 單向上升 ATR 止損</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
               </div>
