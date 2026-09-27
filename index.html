@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>幣安精準動能量化模擬交易引擎 (布林緊縮 + 均線糾纏 + 真實爆量)</title>
+  <title>幣安精準動能量化模擬交易引擎 (修復6位小數精度 + 5.0x爆量 + ATR實時追蹤)</title>
   
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -156,9 +156,8 @@
         <button class="strat-btn" id="btn-strat-b" onclick="switchStrategyEngine('B')">🐢 策略 B：中線波段型 (4H執行)</button>
       </div>
 
-      <!-- 📌 最新防追高、抗低基期爆發條款說明 -->
       <div class="conditions-panel">
-        <div class="conditions-title">📋 系統自動觸發做單與風控條件 (含布林緊縮 + 均線糾纏)</div>
+        <div class="conditions-title">📋 系統自動觸發做單與風控條件 (修復 5.0x 均量與動態精度)</div>
         <div class="conditions-grid">
           <div class="condition-item">
             <div class="condition-label">1. 均線糾纏/多頭 (EMA)</div>
@@ -169,8 +168,8 @@
             <div class="condition-val" style="color:#f0b90b;">起爆前 BB 帶寬 <= 8.0% (防高位追高)</div>
           </div>
           <div class="condition-item">
-            <div class="condition-label">3. 真實大資金爆量 (Volume)</div>
-            <div class="condition-val" style="color:#38bdf8;">成交量 >= 2.0x 且單K額 >= $30萬 USDT</div>
+            <div class="condition-label">3. 極致爆量門檻 (Volume)</div>
+            <div class="condition-val" style="color:#38bdf8;">成交量 >= 5.0x (近20期均量5倍以上)</div>
           </div>
           <div class="condition-item">
             <div class="condition-label">4. K線強度 (Body Gain)</div>
@@ -190,7 +189,7 @@
           </div>
           <div class="condition-item">
             <div class="condition-label">8. 移動止盈 (TP2)</div>
-            <div class="condition-val" style="color:#22c55e;">1.5 x ATR(14) 單向上升移動止損</div>
+            <div class="condition-val" style="color:#22c55e;">1.5 x ATR(14) 隨最高價動態上升抬升</div>
           </div>
         </div>
       </div>
@@ -238,6 +237,15 @@
     let cachedBullList = [];
     let cachedBearList = [];
 
+    // 🎯 動態小數點精度格式化工具（解決 AMP 等低價幣小數失真問題）
+    function formatPrice(val) {
+      if (val === undefined || val === null || isNaN(val)) return '$0.00';
+      const num = parseFloat(val);
+      if (num < 0.01) return '$' + num.toFixed(6);
+      if (num < 1.0) return '$' + num.toFixed(4);
+      return '$' + num.toFixed(2);
+    }
+
     tradesRef.on('value', (snapshot) => {
       const data = snapshot.val();
       paperTrades = data ? Object.values(data) : [];
@@ -264,7 +272,7 @@
       } else if (page === 'paper') {
         document.getElementById('menu-paper').classList.add('active');
         document.getElementById('page-paper').classList.add('active');
-        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎 (BB緊縮 + 均線糾纏)';
+        document.getElementById('page-title').innerText = '🤖 全自動動能突破策略引擎 (5.0x 爆量 + 動態精度)';
         document.getElementById('tf-group').style.display = 'none';
         renderPaperTrades();
       }
@@ -308,7 +316,6 @@
       return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
     }
 
-    // 計算布林帶帶寬百分比 (Bollinger Band Width %)
     function calcBBWidthPct(closes, period = 20, stdDevMultiplier = 2) {
       if (closes.length < period) return 100;
       const slice = closes.slice(-period);
@@ -328,7 +335,7 @@
           const klines = await res.json();
           const closes = klines.map(k => parseFloat(k[4]));
           const price = closes[closes.length - 1];
-          if (item.tf === '1h') document.getElementById('btc-price').innerText = `$${price.toLocaleString()}`;
+          if (item.tf === '1h') document.getElementById('btc-price').innerText = formatPrice(price);
 
           const ema20 = calcEMA(closes, 20);
           const ema50 = calcEMA(closes, 50);
@@ -370,7 +377,7 @@
       const closes = klines.map(k => parseFloat(k[4]));
       const price = closes[closes.length - 1];
 
-      // 1. 均線條件：EMA20 > 50 > 100 > 200 或 EMA 20/50 極度糾纏 (<= 1.5%)
+      // 1. 均線條件：EMA 20/50/100/200 多頭排列 或 EMA 20/50 糾纏 <= 1.5%
       const ema20 = calcEMA(closes, 20);
       const ema50 = calcEMA(closes, 50);
       const ema100 = calcEMA(closes, 100);
@@ -385,16 +392,14 @@
       let breakoutKIndex = -1;
       for (let i = klines.length - 2; i >= Math.max(0, klines.length - 8); i--) {
         const o = parseFloat(klines[i][1]), c = parseFloat(klines[i][4]), v = parseFloat(klines[i][5]);
-        const quoteVol = parseFloat(klines[i][7]); // 該根 K 棒成交金額 (USDT)
         const avgV = klines.slice(Math.max(0, i-20), i).reduce((acc, k) => acc + parseFloat(k[5]), 0) / 20;
         const gain = ((c - o) / o) * 100;
 
-        // 布林帶緊縮判斷 (起爆前 1~3 根 K 棒之 BB 帶寬 <= 8.0%)
         const preCloses = closes.slice(0, i);
         const bbWidth = calcBBWidthPct(preCloses, 20);
 
-        // 四重防高位追高與爆量過濾：漲幅 >= 4% + 2.0x 均量 + 單K成交額 >= 30萬 USDT + 布林緊縮 <= 8%
-        if (c > o && gain >= 4.0 && v >= avgV * 2.0 && quoteVol >= 300000 && bbWidth <= 8.0) {
+        // 🎯 按照你的最新指示：取消 30萬 USDT 限制，改為成交量 >= 5.0x (平均 5 倍以上)
+        if (c > o && gain >= 4.0 && v >= avgV * 5.0 && bbWidth <= 8.0) {
           breakoutKIndex = i;
           break;
         }
@@ -467,6 +472,7 @@
       tradesRef.child(tradeId).set(newTrade);
     }
 
+    /* 🛡️ 關鍵修復：ATR 移動止損實時抬升邏輯 */
     function processTradesExecution(marketTickers) {
       paperTrades.forEach(t => {
         const coin = marketTickers.find(c => c.symbol === t.symbol);
@@ -485,26 +491,30 @@
         else if (t.status === 'OPEN') {
           let needsUpdate = false;
 
+          // 1. 隨時更新持倉期間創下的最高價 Highest Price
           if (currentP > t.highestPrice) {
             t.highestPrice = currentP;
             needsUpdate = true;
           }
 
-          if (t.isHalfClosed) {
-            const newTrailStop = t.highestPrice - (t.atr * 1.5);
-            if (newTrailStop > t.trailStopPrice) {
-              t.trailStopPrice = newTrailStop;
-              needsUpdate = true;
-            }
-          }
-
+          // 2. 觸發 1TP 賣出 50%
           if (!t.isHalfClosed && currentP >= t.tp1Price) {
             t.isHalfClosed = true;
-            t.trailStopPrice = Math.max(t.trailStopPrice, t.entryPrice);
+            t.trailStopPrice = Math.max(t.trailStopPrice, t.entryPrice); // 先拉至進場價保本
             t.pnlPct += 2.0;
             needsUpdate = true;
           }
 
+          // 3. 🎯 關鍵修復：一旦已觸發 1TP，根據當前 Highest Price 實時抬升 1.5x ATR 移動止損
+          if (t.isHalfClosed) {
+            const calculatedTrailStop = t.highestPrice - (t.atr * 1.5);
+            if (calculatedTrailStop > t.trailStopPrice) {
+              t.trailStopPrice = calculatedTrailStop; // 移動止損單向向上抬升！
+              needsUpdate = true;
+            }
+          }
+
+          // 4. 觸發移動止損或原止損清倉
           if (currentP <= t.trailStopPrice) {
             t.status = t.isHalfClosed ? 'WIN' : 'LOSS';
             t.pnlPct = t.isHalfClosed ? 1.0 : -1.0;
@@ -572,7 +582,7 @@
             <div class="card-header" onclick="toggleCharts('${coin.fullSymbol}', '${containerId}')">
               <div>
                 <div class="symbol">${index + 1}. ${coin.symbol} <span style="font-size:12px;color:#848e9c;">/USDT</span></div>
-                <div style="font-size:13px;color:#848e9c;margin-top:2px;">$${coin.price.toLocaleString()}</div>
+                <div style="font-size:13px;color:#848e9c;margin-top:2px;">${formatPrice(coin.price)}</div>
               </div>
               <div class="change ${isUp ? 'up' : 'down'}">
                 ${isUp ? '+' : ''}${change}%
@@ -617,14 +627,14 @@
       document.getElementById('stat-pnl').innerText = (totalPnl >= 0 ? '+' : '') + totalPnl + ' R';
 
       if (filtered.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無符合「布林緊縮 + 均線糾纏/多頭」的爆發標的...</div>`;
+        container.innerHTML = `<div style="text-align:center;padding:40px;color:#848e9c;background:#1e2329;border-radius:12px;">策略 ${activeEngine} 目前無符合「5.0x 爆量 + 布林緊縮」的標的...</div>`;
         return;
       }
 
       filtered.forEach(t => {
         let badge = '<span class="badge badge-pending">⏳ 連續K棒 50% 掛單中 (等待回踩)</span>';
         if (t.status === 'OPEN' && !t.isHalfClosed) badge = '<span class="badge" style="background:#38bdf8;color:#000;">🟢 已回踩進場 (持倉中)</span>';
-        if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (1.5x ATR 止損抬升中)</span>';
+        if (t.isHalfClosed && t.status === 'OPEN') badge = '<span class="badge badge-pump">✅ 觸發 2x SL 賣50% (1.5x ATR 止損動態抬升中)</span>';
         if (t.status === 'WIN') badge = '<span class="badge badge-pump">🎯 獲利結算 WIN</span>';
         if (t.status === 'LOSS') badge = '<span class="badge" style="background:#ef4444;color:#fff;">🚨 觸發止損 LOSS</span>';
 
@@ -642,10 +652,10 @@
 
             <div class="charts-wrapper" id="trade-wrapper-${t.id}">
               <div class="position-box-panel">
-                <div class="position-item pos-entry"><div class="pos-label">🟡 精確 50% 掛單價</div><div class="pos-val" style="color:#facc15;">$${t.entryPrice.toFixed(4)}</div></div>
-                <div class="position-item pos-sl"><div class="pos-label">🔴 起漲點 SL</div><div class="pos-val" style="color:#ef4444;">$${t.slPrice.toFixed(4)}</div></div>
-                <div class="position-item pos-tp"><div class="pos-label">🟢 1TP (2x SL 賣50%)</div><div class="pos-val" style="color:#22c55e;">$${t.tp1Price.toFixed(4)}</div></div>
-                <div class="position-item pos-trail"><div class="pos-label">🛡️ 1.5x ATR 單向上升止損</div><div class="pos-val" style="color:#38bdf8;">$${t.trailStopPrice.toFixed(4)}</div></div>
+                <div class="position-item pos-entry"><div class="pos-label">🟡 精確 50% 掛單價</div><div class="pos-val" style="color:#facc15;">${formatPrice(t.entryPrice)}</div></div>
+                <div class="position-item pos-sl"><div class="pos-label">🔴 起漲點 SL</div><div class="pos-val" style="color:#ef4444;">${formatPrice(t.slPrice)}</div></div>
+                <div class="position-item pos-tp"><div class="pos-label">🟢 1TP (2x SL 賣50%)</div><div class="pos-val" style="color:#22c55e;">${formatPrice(t.tp1Price)}</div></div>
+                <div class="position-item pos-trail"><div class="pos-label">🛡️ 1.5x ATR 動態上升止損</div><div class="pos-val" style="color:#38bdf8;">${formatPrice(t.trailStopPrice)}</div></div>
               </div>
               <div class="tv-chart-container" id="tv-box-${t.id}"></div>
             </div>
